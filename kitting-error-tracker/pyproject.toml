@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kitting-error-tracker"
+version = "0.1.0"
+description = "Computer vision starter project for kitting error tracking"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "mediapipe>=0.10.0",
+  "opencv-python>=4.9.0",
+  "numpy>=1.26.0",
+  "PyYAML>=6.0.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+.env
+*.log
+.pytest_cache/
+.mypy_cache/
+.vscode/
+
+# data and model artifacts
+models/*.pt
+models/*.pth
+models/*.onnx
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
