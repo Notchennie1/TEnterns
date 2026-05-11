@@ -18,6 +18,22 @@ AEGIS implements a **Sense-Analyse-Act** loop that ensures correct part placemen
 
 ---
 
+## 🚀 Getting Started (First-Timers)
+
+**New to the project?** Start here:
+
+1. **[Repository Navigation Guide](docs/REPOSITORY_STRUCTURE.md)** - Complete walkthrough of directories, files, and where to find things
+2. **[System Architecture](docs/ARCHITECTURE.md)** - Understand the FSM gates and sensor fusion loop
+3. **[GitHub Setup](docs/GITHUB_SETUP.md)** - Branch protection and CI/CD configuration
+
+**Choose your path:**
+- 👨‍💻 **Vision/ML Engineer**: [Bin Detector Training Guide](docs/DYNAMIC_BIN_DETECTION.md)
+- 🔌 **Hardware Engineer**: See `config/settings.yaml` → `sensing.modbus` section
+- 🧠 **Logic Developer**: Study `src/logic/fsm.py` for Triple-Gate FSM
+- 🚀 **DevOps**: Follow [GitHub Setup Guide](docs/GITHUB_SETUP.md)
+
+---
+
 ## Directory Structure
 
 ```
@@ -241,6 +257,17 @@ Adjust confidence threshold in settings.yaml
 Verify camera calibration
 Check lighting conditions
 ```
+
+---
+
+## 📖 Documentation Resources
+
+| Guide | Purpose |
+|-------|---------|
+| [Repository Structure](docs/REPOSITORY_STRUCTURE.md) | **Start here** - Complete walkthrough for first-timers |
+| [System Architecture](docs/ARCHITECTURE.md) | System design, FSM gates, hardware stack |
+| [Dynamic Bin Detection](docs/DYNAMIC_BIN_DETECTION.md) | Train YOLOv8 models for automatic bin detection |
+| [GitHub Setup](docs/GITHUB_SETUP.md) | Branch protection rules and CI/CD configuration |
 
 ---
 
