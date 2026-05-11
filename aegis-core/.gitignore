@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Models and data
+models/pretrained/*.pt
+models/pretrained/*.engine
+models/custom/*.pt
+models/custom/*.engine
+data/raw/
+data/processed/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+
+# TensorRT cache
+*.trtc
+
+# Pytest
+.pytest_cache/
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
