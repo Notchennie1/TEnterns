@@ -6,13 +6,13 @@ import threading
 app = FastAPI()
 
 bins = [
-    {"id": "A1", "current": 0, "total": 100, "status": "white"},
-    {"id": "A2", "current": 0, "total": 100, "status": "green"},
-    {"id": "A3", "current": 0, "total": 100, "status": "orange"},
-    {"id": "A4", "current": 0, "total": 100, "status": "red"},
-    {"id": "B1", "current": 0, "total": 100, "status": "grey"},
-    {"id": "B2", "current": 0, "total": 100, "status": "grey"},
-    {"id": "B3", "current": 0, "total": 100, "status": "grey"},
+    {"id": "A1", "current": 0, "total": 5, "status": "white"},
+    {"id": "A2", "current": 0, "total": 3, "status": "white"},
+    {"id": "A3", "current": 0, "total": 20, "status": "white"},
+    {"id": "A4", "current": 0, "total": 0, "status": "grey"},
+    {"id": "B1", "current": 0, "total": 0, "status": "grey"},
+    {"id": "B2", "current": 0, "total": 10, "status": "white"},
+    {"id": "B3", "current": 0, "total": 0, "status": "grey"},
 ]
 
 valid_statuses = {"white", "green", "orange", "red", "grey"}
@@ -38,7 +38,7 @@ def find_bin(bin_id):
 def terminal_loop():
     print("\nBin monitor terminal controls")
     print("Commands:")
-    print("  set A1 5 100 green")
+    print("  set A1 5")
     print("  clear A1")
     print("  show")
     print("  help")
@@ -55,7 +55,7 @@ def terminal_loop():
 
         if action == "help":
             print("Commands:")
-            print("  set <bin_id> <current> <total> <status>")
+            print("  set <bin_id> <current> <total>")
             print("  clear <bin_id>")
             print("  show")
             continue
@@ -78,20 +78,18 @@ def terminal_loop():
                 continue
 
             bin["current"] = 0
-            bin["total"] = 100
+            bin["total"] = 0
             bin["status"] = "grey"
             print(f"{bin_id} cleared")
             continue
 
         if action == "set":
-            if len(parts) != 5:
-                print("Use: set A1 5 100 green")
+            if len(parts) != 3:
+                print("Use: set A1 5")
                 continue
 
             bin_id = parts[1]
             current_text = parts[2]
-            total_text = parts[3]
-            status = parts[4].lower()
 
             bin = find_bin(bin_id)
 
@@ -99,13 +97,20 @@ def terminal_loop():
                 print(f"Unknown bin: {bin_id}")
                 continue
 
-            if status not in valid_statuses:
-                print("Status must be: white, green, orange, red, grey")
-                continue
-
             try:
                 current = int(current_text)
-                total = int(total_text)
+                total = bin["total"]
+                if current == 0 and total != 0:
+                    status = "white"
+                elif current < total and current != 0:
+                    status = "orange"
+                elif current == total:
+                    status = "green"
+                elif current > total:
+                    status = "red"
+                else:
+                    status = "grey"
+
             except ValueError:
                 print("Current and total must be numbers")
                 continue
@@ -114,18 +119,10 @@ def terminal_loop():
                 print("Current and total cannot be negative")
                 continue
 
-            if current > total:
-                print("Current cannot be greater than total")
-                continue
-
-            if status == "grey":
-                status = "grey"
-
             bin["current"] = current
-            bin["total"] = total
             bin["status"] = status
 
-            print(f"{bin_id} updated: {current}/{total}, {status}")
+            print(f"{bin_id} updated: {current}/{total}")
             continue
 
         print("Unknown command. Type help.")
