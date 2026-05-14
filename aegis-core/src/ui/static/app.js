@@ -31,7 +31,7 @@ function renderBins(bins) {
 
     box.className = `bin ${status}`;
 
-    if (status !== "grey") {
+    if (status !== "grey" && status !== "wrong_bin") {
       box.innerHTML = `
         <div class="bin-id">${bin.id}</div>
         <div class="quantity">${bin.current}/${bin.total}</div>

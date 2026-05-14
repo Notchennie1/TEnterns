@@ -8,15 +8,26 @@ app = FastAPI()
 @app.get("/api/bins")
 def get_bins():
     with open("../bins.json", "r") as file:
-        data = json.load(file)
+        bin_data = json.load(file)
+    with open("../hand_position.json", "r") as file:
+        hand_data = json.load(file)
 
-    bins = data["bins"]
+    bins = bin_data["bins"]
+    hand_pos = hand_data["hand_over_bin"]
 
     for bin in bins:
+        id = bin["id"]
         current = int(bin["current"])
         total = int(bin["total"])
-        if bin["status"] != "grey":
+        using = bin["using"].lower() == "true"  
+
+        if using:
             bin["status"] = calculate_status(current, total)
+        else:
+            if hand_pos == id:
+                bin["status"] = "wrong_bin"
+            else:
+                bin["status"] = "grey"
 
     return bins
 
@@ -33,9 +44,7 @@ def find_bin(bin_id):
     return None
 
 def calculate_status(current, total):
-    if total == 0:
-        return "grey"
-    elif current == 0:
+    if current == 0:
         return "white"
     elif current < total:
         return "orange"
