@@ -9,14 +9,14 @@
     },
     {
       "id": "A2",
-      "current": 0,
+      "current": 3,
       "total": 3,
       "status": "white",
       "using": "True"
     },
     {
       "id": "A3",
-      "current": 2,
+      "current": 0,
       "total": 20,
       "status": "white",
       "using": "True"
@@ -37,7 +37,7 @@
     },
     {
       "id": "B2",
-      "current": 10,
+      "current": 0,
       "total": 10,
       "status": "white",
       "using": "True"
