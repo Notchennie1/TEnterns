@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-import threading
 import json
 
 app = FastAPI()
@@ -31,6 +30,12 @@ def get_bins():
 
     return bins
 
+@app.get("/api/mainBin")
+def get_mainBin():
+    with open("../mainBin.json", "r") as file:
+        mainBin_data = json.load(file)
+
+    return mainBin_data
 
 @app.get("/")
 def index():
@@ -41,7 +46,7 @@ def find_bin(bin_id):
     for bin in bins:
         if bin["id"].lower() == bin_id.lower():
             return bin
-    return None
+    return none
 
 def calculate_status(current, total):
     if current == 0:
@@ -51,6 +56,6 @@ def calculate_status(current, total):
     elif current == total:
         return "green"
     else:
-        return "red"
+        return "warn"
 
 app.mount("/static", StaticFiles(directory="static"), name="static")

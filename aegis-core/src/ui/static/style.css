@@ -85,7 +85,7 @@ h1 {
   background: #ffad33;
 }
 
-.red {
+.warn {
   background: #ff4d4d;
 }
 
@@ -97,7 +97,7 @@ h1 {
   background: #999;
 }
 
-#warning-overlay {
+#err-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -114,7 +114,7 @@ h1 {
   z-index: 9999;
 }
 
-#warning-content {
+#err-content {
   max-width: 900px;
   padding: 40px;
 

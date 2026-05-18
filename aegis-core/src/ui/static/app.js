@@ -1,14 +1,16 @@
 async function loadBins() {
   try {
-    const response = await fetch("/api/bins");
+    const binsResponse = await fetch("/api/bins");
+    const mainBinResponse = await fetch("/api/mainBin");
 
-    if (!response.ok) {
+    if (!binsResponse.ok || !mainBinResponse.ok) {
       throw new Error("Backend error");
     }
 
-    const bins = await response.json();
+    const bins = await binsResponse.json();
+    const mainBin = await mainBinResponse.json()
     renderBins(bins);
-    updateWarningBox(bins)
+    updateErr(mainBin)
 
     document.getElementById("last-updated").textContent =
       "Last updated: " + new Date().toLocaleTimeString();
@@ -38,35 +40,31 @@ function renderBins(bins) {
       `;
     }
 
-    // Important: this happens for ALL bins, including grey ones
     container.appendChild(box);
   }
 }
 
-function updateWarningBox(bins) {
-  const warningOverlay = document.getElementById("warning-overlay");
-  const warningContent = document.getElementById("warning-content");
+function updateErr(mainBin) {
+  const errOverlay = document.getElementById("err-overlay");
+  const errContent = document.getElementById("err-content");
 
-  const redBins = bins.filter((bin) => {
-    const status = String(bin.status).trim().toLowerCase();
-    return status === "red";
-  });
+  const problemBins = mainBin.bins || [];
 
-  if (redBins.length > 0) {
-    const redBinText = redBins
-      .map((bin) => `${bin.id}: ${bin.current}/${bin.total}`)
+  if (problemBins.length > 0) {
+    const errText = problemBins
+      .map((bin) => `${bin.id}: ${bin.err}`)
       .join("<br>");
 
-    warningContent.innerHTML = `
+    errContent.innerHTML = `
       WARNING<br>
-      Red bin detected<br>
-      ${redBinText}
+      Error detected<br>
+      ${errText}
     `;
 
-    warningOverlay.classList.remove("hidden");
+    errOverlay.classList.remove("hidden");
   } else {
-    warningContent.innerHTML = "";
-    warningOverlay.classList.add("hidden");
+    errContent.innerHTML = "";
+    errOverlay.classList.add("hidden");
   }
 }
 
