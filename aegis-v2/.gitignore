@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Model artifacts (commit weights via Git LFS or external storage)
+*.pt
+*.onnx
+*.task
+*.tflite
+*.engine
+runs/
+
+# Training/dataset working data (not source)
+cv-models/data/processed/
+cv-models/data/raw/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

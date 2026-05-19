@@ -1,1 +1,5 @@
-"""UI module - Visual Co-Pilot dashboard (Flask/FastAPI/Streamlit)."""
+"""UI — FastAPI web dashboard and OpenCV overlay."""
+
+from .overlay import OverlayUI
+
+__all__ = ["OverlayUI"]
