@@ -1,0 +1,14 @@
+# Core
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+shapely>=2.0.0          # point-in-polygon geometry
+
+# Bin Boundary Detection
+ultralytics>=8.0.0      # YOLO model loading & inference
+
+# Hand Tracking (optional backends — install what you need)
+mediapipe>=0.10.0       # default hand tracker backend
+
+# Logging
+colorlog>=6.7.0

@@ -1,0 +1,40 @@
+# Bin Boundary Segmentation — Training Configuration
+# ===================================================
+
+# Dataset (output of coco_to_yolov8_seg.py)
+dataset:
+  data_yaml: "data/processed/data.yaml"
+  source: "roboflow"               # Where annotations came from
+
+# Model
+model:
+  base: "yolov8n-seg.pt"           # Nano for speed; use yolov8s-seg.pt for accuracy
+  task: "segment"
+
+# Training
+training:
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  device: "cpu"                    # "cuda:0" for GPU training
+  patience: 20                     # Early stopping
+  project: "runs/bin-seg"
+  name: "train"
+
+# Augmentation (tuned for fixed-camera bin detection)
+augmentation:
+  hsv_h: 0.01                     # Bins don't change hue
+  hsv_s: 0.3
+  hsv_v: 0.3
+  degrees: 2.0                    # Camera is mostly fixed
+  translate: 0.05
+  scale: 0.2
+  flipud: 0.0
+  fliplr: 0.3
+  mosaic: 0.5
+
+# Inference defaults (used by the integration pipeline)
+inference:
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+  device: "cpu"

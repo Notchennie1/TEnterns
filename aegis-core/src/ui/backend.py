@@ -1,54 +1,68 @@
+"""
+AEGIS UI — FastAPI Backend
+==========================
+Serves the operator dashboard and provides API endpoints
+for bin status, hand position, and main bin data.
+"""
+
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import json
 
-app = FastAPI()
+# Resolve paths relative to project root
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR = _PROJECT_ROOT / "data"
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+app = FastAPI(title="AEGIS Dashboard")
+
+
 @app.get("/api/bins")
 def get_bins():
-    with open("../bins.json", "r") as file:
+    """Return bin status with calculated state."""
+    with open(_DATA_DIR / "bins.json", "r") as file:
         bin_data = json.load(file)
-    with open("../hand_position.json", "r") as file:
+    with open(_DATA_DIR / "hand_position.json", "r") as file:
         hand_data = json.load(file)
 
     bins = bin_data["bins"]
     hand_pos = hand_data["hand_over_bin"]
 
-    for bin in bins:
-        id = bin["id"]
-        current = int(bin["current"])
-        total = int(bin["total"])
-        using = bin["using"].lower() == "true"  
+    for bin_item in bins:
+        bin_id = bin_item["id"]
+        current = int(bin_item["current"])
+        total = int(bin_item["total"])
+        using = bin_item["using"].lower() == "true"
 
         if using:
-            bin["status"] = calculate_status(current, total)
+            bin_item["status"] = _calculate_status(current, total)
         else:
-            if hand_pos == id:
-                bin["status"] = "wrong_bin"
+            if hand_pos == bin_id:
+                bin_item["status"] = "wrong_bin"
             else:
-                bin["status"] = "grey"
+                bin_item["status"] = "grey"
 
     return bins
 
-@app.get("/api/mainBin")
-def get_mainBin():
-    with open("../mainBin.json", "r") as file:
-        mainBin_data = json.load(file)
 
-    return mainBin_data
+@app.get("/api/mainBin")
+def get_main_bin():
+    """Return main bin configuration."""
+    with open(_DATA_DIR / "mainBin.json", "r") as file:
+        return json.load(file)
+
 
 @app.get("/")
 def index():
-    return FileResponse("static/index.html")
+    """Serve the dashboard."""
+    return FileResponse(_STATIC_DIR / "index.html")
 
 
-def find_bin(bin_id):
-    for bin in bins:
-        if bin["id"].lower() == bin_id.lower():
-            return bin
-    return none
-
-def calculate_status(current, total):
+def _calculate_status(current: int, total: int) -> str:
+    """Determine bin fill status color."""
     if current == 0:
         return "white"
     elif current < total:
@@ -58,4 +72,5 @@ def calculate_status(current, total):
     else:
         return "warn"
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")

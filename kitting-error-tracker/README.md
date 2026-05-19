@@ -1,207 +1,137 @@
-# Kitting Error Tracker (Starter)
+# kitting-error-tracker
 
-Computer-vision starter pipeline for kitting-error detection using:
-- MediaPipe hand tracking (no training required)
-- Bin segmentation placeholder (to be replaced by your model)
+Minimal local pipeline for webcam-based hand landmark tracking (Google AI Edge / MediaPipe Tasks) + a simple bin mask preview.
 
-This project uses a **Conda-first workflow**.
+## What this project does
 
-## Current Features
+- Opens a webcam feed.
+- Runs **MediaPipe Tasks Hand Landmarker** (from the `mediapipe` Python package) to detect hand landmarks.
+- Computes a simple **GRAB / OPEN** state using a normalized *finger curl* heuristic + temporal debouncing.
+- Displays:
+  - `kitting-camera`: the camera frame with landmarks and text overlay
+  - `bin-mask`: a basic segmentation mask (placeholder)
 
-- Tracks up to **2 hands** in real time.
-- Displays all **21 landmarks** per hand.
-- Shows per-hand **grab status** (`GRAB`/`OPEN`) and a `grab_score`.
-- Shows `Hands detected: N` on the live frame.
-- Displays a `bin-mask` window from the placeholder segmenter.
+### GRAB / OPEN meaning
 
-## Project Structure
+`GRAB` is estimated with a simple closed-fist proxy:
 
-```text
-kitting-error-tracker/
-├─ configs/
-│  └─ pipeline.yaml
-├─ data/
-│  ├─ raw/
-│  └─ processed/
-├─ models/
-├─ environment.yml
-├─ scripts/
-│  └─ run_local.py
-│  └─ setup_jetson_venv.sh
-├─ src/
-│  └─ kitting_cv/
-│     ├─ tracking/
-│     │  └─ mediapipe_tracker.py
-│     ├─ segmentation/
-│     │  └─ bin_segmenter.py
-│     └─ pipeline/
-│        └─ run_pipeline.py
-├─ requirements.txt
-└─ pyproject.toml
-```
+- Compute the palm center from wrist + MCP joints.
+- Measure each fingertip’s distance to the palm center.
+- Normalize those distances by palm size (wrist ↔ middle-MCP).
+- If **4/5** fingertips are “close” (curled), report `GRAB`.
 
-## First-Time Setup (Windows + Conda)
+This is then temporally debounced across frames to reduce flicker.
 
-Run these once:
+## Requirements
 
-### 1) Open terminal in project root
+- Windows (these instructions are written for Windows PowerShell)
+- Conda (recommended) or Python 3.10 + venv
+- A webcam
+
+## First-time setup (Conda)
+
+From the repository root, run:
 
 ```powershell
-cd C:\Users\chenx\Documents\TEnterns\kitting-error-tracker
-```
-
-### 2) Create Conda environment
-
-```powershell
+cd kitting-error-tracker
 conda env create -f environment.yml
-```
-
-### 3) Activate Conda environment
-
-```powershell
 conda activate kitting-cv
 ```
 
-### 4) Install this project package (required)
+### Download the Hand Landmarker model
+
+The tracker expects this file:
+
+- `kitting-error-tracker/models/hand_landmarker.task`
+
+Download it with:
 
 ```powershell
-python -m pip install -e .
+New-Item -ItemType Directory -Force models | Out-Null
+Invoke-WebRequest `
+  -Uri "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" `
+  -OutFile "models/hand_landmarker.task"
 ```
 
-### 5) Verify interpreter + packages
+Quick check:
 
 ```powershell
-python -c "import sys; print(sys.executable)"
-python -c "import cv2, mediapipe, kitting_cv; print('Environment OK')"
+Test-Path models/hand_landmarker.task
 ```
 
-If you see `(.venv)` in your prompt, run `deactivate` so only `(kitting-cv)` is active.
-
-## Run After Setup (Daily Use)
-
-Each time you start working:
+### Smoke test imports
 
 ```powershell
-cd C:\Users\chenx\Documents\TEnterns\kitting-error-tracker
+python -c "import cv2, mediapipe as mp; print('imports ok', cv2.__version__, mp.__version__)"
+```
+
+## Run (first time and later)
+
+Activate the environment and run:
+
+```powershell
+cd kitting-error-tracker
 conda activate kitting-cv
 python scripts/run_local.py
 ```
 
-Press `q` to close the windows.
+Notes:
+- Press `q` in the OpenCV window to quit.
+- If you accidentally run `python scripts/run_local.pyd`, that will fail: the script is `run_local.py`.
 
-## Expected Output On Screen
+## Run again (testing the same model)
 
-- `kitting-camera` window:
-	- Hand count (`Hands detected: 0/1/2`)
-	- Two-hand landmark overlays (index labels for all 21 points)
-	- `Hand 1 ... GRAB/OPEN score=...`
-	- `Hand 2 ... GRAB/OPEN score=...`
-- `bin-mask` window:
-	- Placeholder segmentation mask output
+For subsequent runs on the same model, you only need:
+
+```powershell
+cd kitting-error-tracker
+conda activate kitting-cv
+python scripts/run_local.py
+```
+
+(Optional) confirm the model is still present:
+
+```powershell
+Test-Path models/hand_landmarker.task
+```
+
+## Configuration
+
+### Camera index
+
+The entrypoint is:
+
+- `scripts/run_local.py`
+
+It calls `run_camera_pipeline(camera_index=0)`. If your webcam is not at index 0, edit that value (e.g. `1`).
 
 ## Troubleshooting
 
-### Conda not recognized
+### "Import 'cv2' could not be resolved" / "Import 'mediapipe' could not be resolved" in VS Code
 
-Run in Anaconda Prompt:
+VS Code is using a different Python interpreter than your conda env.
 
-```powershell
-conda init powershell
-```
+Fix:
+- Open the Command Palette → **Python: Select Interpreter**
+- Pick the interpreter from the `kitting-cv` environment
 
-Then close/reopen VS Code.
+### Model not found
 
-### Wrong environment is active
+If you see an error like `FileNotFoundError: Hand Landmarker model not found...`, ensure:
 
-Check executable path:
+- `models/hand_landmarker.task` exists
+- You ran the download command in the `kitting-error-tracker/` folder
 
-```powershell
-python -c "import sys; print(sys.executable)"
-```
+### Camera won’t open
 
-It should point to `...\.conda\envs\kitting-cv\python.exe`.
+If you get `Could not open camera.`:
 
-### MediaPipe import/API mismatch
+- Close other apps that may be using the camera.
+- Try a different `camera_index` in `scripts/run_local.py`.
 
-This project pins MediaPipe in `requirements.txt` for compatibility.
-If needed, reinstall inside `kitting-cv`:
+## Project layout
 
-```powershell
-pip install --upgrade --force-reinstall mediapipe==0.10.14
-```
-
-### Camera cannot open
-
-Try a different camera index:
-
-```powershell
-python -c "from kitting_cv.pipeline import run_camera_pipeline; run_camera_pipeline(camera_index=1)"
-```
-
-Close other apps that may lock the camera (Teams/Zoom/browser).
-
-## Jetson (ICAM-520 / NVIDIA Jetson) Quick Setup
-
-You do **not** need Conda on Jetson. Use a local `venv` unless you specifically want Conda.
-
-### One-command setup (recommended)
-
-```bash
-cd ~/kitting-error-tracker
-bash scripts/setup_jetson_venv.sh
-```
-
-Then run:
-
-```bash
-source .venv/bin/activate
-python scripts/run_local.py
-```
-
-### Manual setup (same steps as script)
-
-#### 1) Install system packages
-
-```bash
-sudo apt update
-sudo apt install -y python3-pip python3-venv python3-opencv v4l-utils
-```
-
-#### 2) Create and activate a virtual environment
-
-```bash
-cd ~/kitting-error-tracker
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-```
-
-#### 3) Install project dependencies
-
-```bash
-pip install -r requirements.txt
-pip install -e .
-```
-
-#### 4) Verify imports and camera
-
-```bash
-python -c "import cv2; print(cv2.__version__)"
-python -c "import mediapipe, kitting_cv; print('Jetson environment OK')"
-v4l2-ctl --list-devices
-```
-
-#### 5) Run
-
-```bash
-python scripts/run_local.py
-```
-
-If `mediapipe` is not available on your JetPack/Python combination, keep the same project structure and replace the hand-tracking backend with a Jetson-friendly option.
-
-## Next Implementation Steps
-
-1. Replace `BinSegmenter.segment(...)` with your trained segmentation model inference.
-2. Add stable bin ID mapping from contours.
-3. Connect hand trajectory + grab state to kitting rule checks.
-4. Log kitting errors (wrong bin / missed pick / extra pick).
+- `src/kitting_cv/tracking/mediapipe_tracker.py`: Tasks Hand Landmarker + GRAB/OPEN logic
+- `src/kitting_cv/pipeline/run_pipeline.py`: webcam loop + drawing/visualization
+- `src/kitting_cv/segmentation/bin_segmenter.py`: placeholder segmentation
+- `scripts/run_local.py`: entrypoint

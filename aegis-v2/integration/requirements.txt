@@ -1,0 +1,17 @@
+# Integration Pipeline — All Dependencies
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyyaml>=6.0
+mediapipe>=0.10.0
+torch>=2.0.0
+torchvision>=0.15.0
+shapely>=2.0.0
+
+# Web Dashboard
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+
+# Hardware (enable when connecting sensors)
+# pymodbus>=3.4.0
+# pyserial>=3.5
