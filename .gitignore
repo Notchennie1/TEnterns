@@ -1,2 +1,108 @@
 # Claude Code local settings (per-machine permissions)
 .claude/
+
+# ============= DATASETS =============
+# Exclude all data directories and dataset files
+**/data/
+**/data/raw/
+**/data/processed/
+**/datasets/
+*/data/
+data/
+datasets/
+*.csv
+*.xlsx
+*.json
+*.tsv
+*.parquet
+*.arrow
+
+# Specific project data directories
+aegis-core/models/data/
+kitting-error-tracker/data/
+kitting-error-tracker/data/raw/
+kitting-error-tracker/data/processed/
+
+# ============= MODELS =============
+# Large model files
+*.pt
+*.pth
+*.onnx
+*.weights
+*.safetensors
+*.bin
+models/data/
+models/custom/
+models/pretrained/
+aegis-core/models/
+kitting-error-tracker/models/
+
+# ============= TRAINING OUTPUTS =============
+runs/
+htmlcov/
+*.log
+training_output.log
+logs/
+
+# ============= PYTHON =============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============= VIRTUAL ENVIRONMENTS =============
+venv/
+ENV/
+env/
+.venv
+.conda/
+*.venv
+
+# ============= IDE & EDITORS =============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ============= OS FILES =============
+.DS_Store
+Thumbs.db
+*.tmp
+.Spotlight-V100
+.Trashes
+
+# ============= JUPYTER NOTEBOOKS =============
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============= MISC =============
+.env
+.env.local
+*.pkl
+*.pickle
+.cache/
