@@ -16,7 +16,6 @@ env/
 *~
 
 # Models and data
-models/pretrained/*.pt
 models/pretrained/*.engine
 models/custom/*.pt
 models/custom/*.engine
