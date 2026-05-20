@@ -230,7 +230,7 @@ def main():
     """Test segmentation model."""
     
     base_dir = Path(__file__).parent.parent.parent
-    model_path = base_dir / "models" / "custom" / "bin_segmentation.pt"
+    model_path = base_dir / "models" / "custom" / "bin_segmentation_multi.pt"
     
     if not model_path.exists():
         logger.error(f"Model not found: {model_path}")

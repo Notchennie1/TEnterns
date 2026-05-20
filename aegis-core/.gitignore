@@ -16,9 +16,6 @@ env/
 *~
 
 # Models and data
-models/pretrained/*.engine
-models/custom/*.pt
-models/custom/*.engine
 data/raw/
 data/processed/
 
