@@ -23,9 +23,9 @@ app = FastAPI(title="AEGIS Dashboard")
 @app.get("/api/bins")
 def get_bins():
     """Return bin status with calculated state."""
-    with open(_DATA_DIR / "bins.json", "r") as file:
+    with open("../bins.json", "r") as file:
         bin_data = json.load(file)
-    with open(_DATA_DIR / "hand_position.json", "r") as file:
+    with open("../hand_position.json", "r") as file:
         hand_data = json.load(file)
 
     bins = bin_data["bins"]
