@@ -74,6 +74,14 @@ def create_app(state: Optional[PipelineState] = None) -> FastAPI:
             return JSONResponse([], status_code=200)
         return _state.get_bins()
 
+    @app.get("/api/layout")
+    def get_layout():
+        """Return the bin grid layout (layers × bins) merged from CV + load cells."""
+        if _state is None:
+            return {"num_layers": 0, "num_bins": 0, "layers": [],
+                    "source": {"cv": False, "loadcells": False}}
+        return _state.get_layout()
+
     @app.get("/api/hands")
     def get_hands():
         """Return current hand detection data."""

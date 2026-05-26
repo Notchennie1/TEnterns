@@ -33,8 +33,13 @@ _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT.parent))  # aegis-v2/
 sys.path.insert(0, str(_ROOT))         # integration/
 
+# Default config path, resolved relative to this file so the pipeline can be
+# launched from any working directory.
+_DEFAULT_CONFIG = str(_ROOT / "integration" / "config" / "settings.yaml")
+
 from integration.src.detectors import BinDetector
 from integration.src.engine import BinAssignmentEngine, BinRegion, TripleGateFSM, SensorReading
+from integration.src.sensing import LoadCellReader
 from integration.src.ui.overlay import OverlayUI
 from integration.src.ui.state import PipelineState
 
@@ -69,7 +74,7 @@ class Pipeline:
     OpenCV camera overlay and a web dashboard for the operator.
     """
 
-    def __init__(self, config_path: str = "config/settings.yaml"):
+    def __init__(self, config_path: str = _DEFAULT_CONFIG):
         self._config = _load_config(config_path)
         self._setup_logging()
 
@@ -79,6 +84,7 @@ class Pipeline:
         self._assignment: Optional[BinAssignmentEngine] = None
         self._fsm: Optional[TripleGateFSM] = None
         self._overlay: Optional[OverlayUI] = None
+        self._loadcells: Optional[LoadCellReader] = None
         self._geofences: dict = {}
 
         # Shared state for the web dashboard
@@ -89,6 +95,7 @@ class Pipeline:
         try:
             self._open_camera()
             self._detect_bins()
+            self._init_loadcells()
             self._load_hand_tracker()
             self._create_engines()
             self._create_overlay()
@@ -113,30 +120,92 @@ class Pipeline:
             raise RuntimeError(f"Cannot open camera: {source}")
 
     def _detect_bins(self) -> None:
-        """Snapshot → detect bin boundaries → lock coordinates for session."""
-        det_cfg = self._config.get("bin_detector", {})
-        model_path = det_cfg.get("model_path", "yolov8n.pt")
-        conf = det_cfg.get("confidence_threshold", 0.5)
+        """Snapshot → detect bin boundaries → lock coordinates for session.
 
-        self._bin_detector = BinDetector(model_path=model_path, conf_threshold=conf)
+        If ``bin_detector.manual_layout`` is set, CV detection is skipped and
+        the bins are laid out as an even grid built from the per-layer counts.
+        """
+        det_cfg = self._config.get("bin_detector", {})
 
         logger.info("Taking initialization snapshot for bin detection...")
         ret, frame = self._cap.read()
         if not ret:
             raise RuntimeError("Failed to capture initialization snapshot")
 
-        self._geofences = self._bin_detector.detect_bins(frame)
-        logger.info("Bin map locked: %d regions", len(self._geofences))
+        manual_layout = det_cfg.get("manual_layout")
+        if manual_layout:
+            h, w = frame.shape[:2]
+            self._geofences = self._build_manual_geofences(manual_layout, w, h)
+            logger.info("Manual bin layout: %d layer(s), %d bins total",
+                        len(manual_layout), len(self._geofences))
+        else:
+            model_path = det_cfg.get("model_path", "yolov8n.pt")
+            conf = det_cfg.get("confidence_threshold", 0.5)
+            self._bin_detector = BinDetector(model_path=model_path, conf_threshold=conf)
+            self._geofences = self._bin_detector.detect_bins(frame)
+            logger.info("Bin map locked: %d regions", len(self._geofences))
 
         # Push bin map to shared state
         self._state.update_bins(self._geofences)
 
-        # Show detection result
-        if self._config.get("debug", {}).get("show_init_snapshot", False):
+        # Show detection result (CV path only; manual layout has no detector)
+        if self._config.get("debug", {}).get("show_init_snapshot", False) and self._bin_detector:
             vis = self._bin_detector.visualize(frame)
             cv2.imshow("Bin Detection — Initialization", vis)
             cv2.waitKey(2000)
             cv2.destroyWindow("Bin Detection — Initialization")
+
+    @staticmethod
+    def _build_manual_geofences(
+        bins_per_layer: list, width: int, height: int, gap: int = 6
+    ) -> dict:
+        """Build geofences from per-layer bin counts, no pixel coords needed.
+
+        ``bins_per_layer[i]`` is the number of bins in layer (row) ``i``. Layers
+        split the frame height equally; within a layer the bins split the width
+        equally. Produces the same ``bin_{row}_{col}`` ids and geofence dict the
+        CV detector would, with confidence 1.0. ``gap`` insets each box a few
+        pixels so adjacent bins don't share an edge.
+        """
+        num_layers = len(bins_per_layer)
+        geofences: dict = {}
+        if num_layers == 0:
+            return geofences
+        row_h = height / num_layers
+        for row, n_cols in enumerate(bins_per_layer):
+            n_cols = int(n_cols)
+            if n_cols <= 0:
+                continue
+            col_w = width / n_cols
+            y_min = int(row * row_h) + gap
+            y_max = int((row + 1) * row_h) - gap
+            for col in range(n_cols):
+                x_min = int(col * col_w) + gap
+                x_max = int((col + 1) * col_w) - gap
+                geofences[f"bin_{row}_{col}"] = {
+                    "x_min": max(0, x_min),
+                    "x_max": min(width, x_max),
+                    "y_min": max(0, y_min),
+                    "y_max": min(height, y_max),
+                    "confidence": 1.0,
+                }
+        return geofences
+
+    def _init_loadcells(self) -> None:
+        """Initialise the load-cell reader and merge its layout into shared state.
+
+        The driver is a stub today (returns nothing), so the dashboard layout
+        falls back to the CV-detected grid. Once hardware is wired up, the same
+        path supplies real layer counts and per-bin weights.
+        """
+        lc_cfg = self._config.get("sensing", {}).get("loadcells", {})
+        self._loadcells = LoadCellReader(lc_cfg)
+        layout = self._loadcells.get_layout()
+        self._state.update_loadcells(layout, self._loadcells.get_weights())
+        if self._loadcells.is_connected():
+            logger.info("Load cells connected: %d layer(s)", layout.num_layers)
+        else:
+            logger.info("Load cells not connected (stub) — layout from CV only")
 
     def _load_hand_tracker(self) -> None:
         ht_cfg = self._config.get("hand_tracker", {})
@@ -251,6 +320,11 @@ class Pipeline:
                 elapsed = time.time() - t0
                 fps = frame_count / max(elapsed, 1e-6)
                 self._state.update_fps(fps)
+                if self._loadcells is not None:
+                    self._state.update_loadcells(
+                        self._loadcells.get_layout(),
+                        self._loadcells.get_weights(),
+                    )
 
             if frame_count % 300 == 0:
                 fps = frame_count / (time.time() - t0)
@@ -277,6 +351,8 @@ class Pipeline:
         logger.info("Shutting down pipeline...")
         if self._hand_tracker:
             self._hand_tracker.release()
+        if self._loadcells:
+            self._loadcells.close()
         if self._cap:
             self._cap.release()
         cv2.destroyAllWindows()
@@ -292,6 +368,6 @@ class Pipeline:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="AEGIS v2 Pipeline")
-    parser.add_argument("--config", default="config/settings.yaml")
+    parser.add_argument("--config", default=_DEFAULT_CONFIG)
     args = parser.parse_args()
     Pipeline(args.config).run()

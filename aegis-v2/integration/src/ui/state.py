@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ..sensing import LayerLayout
+
 
 @dataclass
 class BinStatus:
@@ -64,6 +66,12 @@ class PipelineState:
         self._last_update: float = 0.0
         self._frame_count: int = 0
         self._start_time: float = time.time()
+
+        # Load-cell view of the layout (rows × bins) and per-bin weights.
+        # Empty until the load-cell driver is implemented; the layout merge
+        # falls back to the CV-detected grid in that case.
+        self._loadcell_layout: LayerLayout = LayerLayout()
+        self._loadcell_weights: dict[str, float] = {}
 
     # ── Writers (called by the pipeline loop) ────────────────
 
@@ -148,6 +156,17 @@ class PipelineState:
             self._last_update = time.time()
             self._frame_count += 1
 
+    def update_loadcells(
+        self,
+        layout: LayerLayout,
+        weights: dict[str, float] | None = None,
+    ) -> None:
+        """Update the load-cell layout and per-bin weights (called by pipeline)."""
+        with self._lock:
+            self._loadcell_layout = layout or LayerLayout()
+            if weights is not None:
+                self._loadcell_weights = dict(weights)
+
     # ── Readers (called by FastAPI endpoints) ────────────────
 
     def get_bins(self) -> list[dict]:
@@ -155,9 +174,12 @@ class PipelineState:
             result = []
             for b in self._bins.values():
                 status = self._calculate_bin_status(b)
+                layer, col = self._parse_bin_id(b.bin_id)
                 result.append({
                     "id": b.bin_id,
                     "label": b.label,
+                    "layer": layer,
+                    "col": col,
                     "current": b.pick_count,
                     "total": b.target_count,
                     "status": status,
@@ -165,6 +187,7 @@ class PipelineState:
                     "is_active": b.is_active,
                     "handedness": b.handedness,
                     "confidence": b.confidence,
+                    "weight": self._loadcell_weights.get(b.bin_id, 0.0),
                 })
             return result
 
@@ -207,6 +230,47 @@ class PipelineState:
                 "num_hands": len(self._hands),
             }
 
+    def get_layout(self) -> dict:
+        """
+        Return the bin grid layout (layers × bins) for the dashboard to render.
+
+        Merges two sources:
+          - CV: bins detected by the vision model, grouped by their row (layer)
+                from the ``bin_{row}_{col}`` id.
+          - Load cells: the layout reported by the weight-sensor array.
+
+        For each layer present in either source, the bin count is the larger of
+        the two. The dashboard renders one row per layer so empty/not-yet-seen
+        slots still appear as placeholders.
+        """
+        with self._lock:
+            # CV-derived: group detected bins by layer (row).
+            cv_counts: dict[int, int] = {}
+            for bid in self._bins:
+                layer, col = self._parse_bin_id(bid)
+                # bins are 0-indexed by col, so count = highest col + 1
+                cv_counts[layer] = max(cv_counts.get(layer, 0), col + 1)
+
+            lc_counts = dict(self._loadcell_layout.bins_per_layer)
+            lc_connected = self._loadcell_layout.num_layers > 0
+
+            all_layers = set(cv_counts) | set(lc_counts)
+            layers = []
+            for layer in sorted(all_layers):
+                n = max(cv_counts.get(layer, 0), lc_counts.get(layer, 0))
+                layers.append({
+                    "layer": layer,
+                    "num_bins": n,
+                    "bin_ids": [f"bin_{layer}_{c}" for c in range(n)],
+                })
+
+            return {
+                "num_layers": len(all_layers),
+                "num_bins": sum(l["num_bins"] for l in layers),
+                "layers": layers,
+                "source": {"cv": bool(cv_counts), "loadcells": lc_connected},
+            }
+
     def set_work_order(self, bin_targets: dict[str, int]) -> None:
         """Set target pick counts per bin from a work order."""
         with self._lock:
@@ -216,6 +280,15 @@ class PipelineState:
                     self._bins[bid].using = target > 0
 
     # ── Helpers ──────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_bin_id(bin_id: str) -> tuple[int, int]:
+        """Parse 'bin_{row}_{col}' into (layer, col). Returns (0, 0) on failure."""
+        parts = bin_id.split("_")
+        try:
+            return int(parts[-2]), int(parts[-1])
+        except (ValueError, IndexError):
+            return 0, 0
 
     @staticmethod
     def _calculate_bin_status(b: BinStatus) -> str:

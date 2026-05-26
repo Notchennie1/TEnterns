@@ -191,10 +191,43 @@ h2 {
 /* ── Bin Grid ────────────────────────────────────── */
 
 #bins {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 760px;
+}
+
+/* One row per layer: label on the left, the layer's bins on the right. */
+.bin-layer {
+  display: flex;
+  align-items: stretch;
   gap: 14px;
-  max-width: 700px;
+}
+
+.layer-label {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #4a6078;
+  background: #121828;
+  border: 1px solid #1e2a3a;
+  border-radius: 10px;
+}
+
+.layer-grid {
+  display: grid;
+  gap: 14px;
+  flex: 1;
+}
+
+.bin-weight {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-top: 2px;
 }
 
 .bin {

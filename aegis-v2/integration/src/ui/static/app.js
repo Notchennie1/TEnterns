@@ -24,8 +24,9 @@ const FSM_DISPLAY = {
 // ── Main poll loop ──────────────────────────────────
 async function poll() {
   try {
-    const [binsRes, handsRes, fsmRes, errRes, statsRes] = await Promise.all([
+    const [binsRes, layoutRes, handsRes, fsmRes, errRes, statsRes] = await Promise.all([
       fetch("/api/bins"),
+      fetch("/api/layout"),
       fetch("/api/hands"),
       fetch("/api/fsm"),
       fetch("/api/errors"),
@@ -35,12 +36,13 @@ async function poll() {
     if (!binsRes.ok) throw new Error("Backend error");
 
     const bins   = await binsRes.json();
+    const layout = await layoutRes.json();
     const hands  = await handsRes.json();
     const fsm    = await fsmRes.json();
     const errors = await errRes.json();
     const stats  = await statsRes.json();
 
-    renderBins(bins);
+    renderBins(bins, layout);
     renderFSM(fsm);
     renderHands(hands);
     renderStats(stats);
@@ -57,39 +59,77 @@ async function poll() {
   }
 }
 
-// ── Bin grid ────────────────────────────────────────
-function renderBins(bins) {
+// ── Bin grid (grouped by layer) ─────────────────────
+function renderBins(bins, layout) {
   const container = document.getElementById("bins");
   container.innerHTML = "";
 
-  for (const bin of bins) {
-    const box = document.createElement("div");
-    const status = String(bin.status).trim().toLowerCase();
+  // Index live bin data by id for quick lookup per slot.
+  const byId = {};
+  for (const bin of bins) byId[bin.id] = bin;
 
-    box.className = "bin " + status;
+  const layers = (layout && layout.layers) || [];
 
-    let inner = '<div class="bin-id">' + bin.id + '</div>';
-
-    if (status !== "grey") {
-      if (bin.total > 0) {
-        inner += '<div class="quantity">' + bin.current + '/' + bin.total + '</div>';
-      } else {
-        inner += '<div class="quantity">' + bin.current + '</div>';
-      }
-    }
-
-    if (bin.is_active && bin.handedness) {
-      inner += '<div class="bin-badge" style="background:#3b82f6;color:#fff;">'
-             + bin.handedness.toUpperCase() + '</div>';
-    }
-
-    box.innerHTML = inner;
-    container.appendChild(box);
-  }
-
-  if (bins.length === 0) {
+  if (layers.length === 0) {
     container.innerHTML = '<div class="no-hands">No bins detected yet</div>';
+    return;
   }
+
+  for (const layer of layers) {
+    const row = document.createElement("div");
+    row.className = "bin-layer";
+
+    const label = document.createElement("div");
+    label.className = "layer-label";
+    label.textContent = "L" + layer.layer;
+    row.appendChild(label);
+
+    const grid = document.createElement("div");
+    grid.className = "layer-grid";
+    grid.style.gridTemplateColumns = "repeat(" + Math.max(layer.num_bins, 1) + ", 1fr)";
+
+    for (const binId of layer.bin_ids) {
+      grid.appendChild(makeBinBox(binId, byId[binId]));
+    }
+
+    row.appendChild(grid);
+    container.appendChild(row);
+  }
+}
+
+function makeBinBox(binId, bin) {
+  const box = document.createElement("div");
+
+  // Slot in the layout but no live data yet → render as a grey placeholder.
+  if (!bin) {
+    box.className = "bin grey";
+    box.innerHTML = '<div class="bin-id">' + binId + '</div>';
+    return box;
+  }
+
+  const status = String(bin.status).trim().toLowerCase();
+  box.className = "bin " + status;
+
+  let inner = '<div class="bin-id">' + bin.id + '</div>';
+
+  if (status !== "grey") {
+    if (bin.total > 0) {
+      inner += '<div class="quantity">' + bin.current + '/' + bin.total + '</div>';
+    } else {
+      inner += '<div class="quantity">' + bin.current + '</div>';
+    }
+    if (bin.weight) {
+      inner += '<div class="bin-weight">' + Math.round(bin.weight) + 'g</div>';
+    }
+  }
+
+  if (bin.is_active && bin.handedness) {
+    inner += '<div class="bin-badge" style="background:#3b82f6;color:#fff;">'
+           + bin.handedness.toUpperCase() + '</div>';
+  }
+
+  box.innerHTML = inner;
+  return box;
 }
 
 // ── FSM state ───────────────────────────────────────
