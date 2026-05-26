@@ -202,33 +202,30 @@ class Pipeline:
         t0 = time.time()
         show_overlay = self._overlay is not None
 
+        if show_overlay:
+            cv2.namedWindow("AEGIS v2 — Bin Tracker", cv2.WINDOW_NORMAL)
+
         while True:
             ret, frame = self._cap.read()
             if not ret:
                 continue
 
-            # SENSE: detect hands
             hands = self._hand_tracker.detect(frame)
-
-            # ANALYSE: assign hands to bins
             events = self._assignment.assign(hands)
 
-            # ANALYSE: run FSM for kinetic gating
             for ev in events:
                 if ev.bin_id is not None:
                     hand = next((h for h in hands if h.hand_id == ev.hand_id), None)
                     is_grabbing = getattr(hand, "is_grabbing", False) if hand else False
-
                     reading = SensorReading(
                         timestamp=time.time(),
                         hand_in_geofence=True,
                         closed_fist_detected=is_grabbing,
-                        weight_delta=0.0,  # TODO: Modbus weight sensor
+                        weight_delta=0.0,
                         bin_id=ev.bin_id,
                     )
                     self._fsm.update(reading)
 
-            # Push state to dashboard
             fsm_info = self._fsm.get_state_info()
             self._state.update_hands(hands, events)
             self._state.update_fsm(
@@ -239,7 +236,6 @@ class Pipeline:
             active_ids = {ev.bin_id for ev in events if ev.bin_id is not None}
             self._state.update_bins(self._geofences, active_ids)
 
-            # ACT: render OpenCV overlay
             if show_overlay:
                 display = self._overlay.render(
                     frame, hands, events,
@@ -250,7 +246,6 @@ class Pipeline:
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
-            # FPS tracking
             frame_count += 1
             if frame_count % 30 == 0:
                 elapsed = time.time() - t0
@@ -261,7 +256,7 @@ class Pipeline:
                 fps = frame_count / (time.time() - t0)
                 logger.info("FPS: %.1f | FSM: %s | Hands: %d | Active bins: %s",
                             fps, self._fsm.state.value, len(hands),
-                            ", ".join(active_ids) or "none")
+                            ", ".join(active_ids) or "none") 
 
     # ── Callbacks ────────────────────────────────────────────
 

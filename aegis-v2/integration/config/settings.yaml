@@ -9,7 +9,7 @@ camera:
 
 # --- Bin Boundary Detector (from cv-models) ------
 bin_detector:
-  model_path: "../cv-models/models/weights/best.pt"   # Trained YOLOv8-seg weights
+  model_path: "./cv-models/models/weights/best.pt"   # Trained YOLOv8-seg weights
   confidence_threshold: 0.5
   iou_threshold: 0.45
   device: "cpu"                   # "cpu" or "cuda:0"
