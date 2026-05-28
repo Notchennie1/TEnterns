@@ -119,18 +119,44 @@ def initialize_bins_image(image_path, model):
     return bins, image
 
 
-def initialize_continuous_webcam(model):
+def list_available_cameras():
+    """List all available cameras."""
+    logger.info("Scanning for available cameras...")
+    available_cameras = []
+    
+    for idx in range(10):  # Check first 10 indices
+        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            available_cameras.append({
+                "index": idx,
+                "resolution": f"{width}x{height}"
+            })
+            cap.release()
+    
+    if available_cameras:
+        logger.info(f"Found {len(available_cameras)} camera(s):")
+        for cam in available_cameras:
+            logger.info(f"  Camera {cam['index']}: {cam['resolution']}")
+        return available_cameras
+    else:
+        logger.warning("No cameras found!")
+        return []
+
+
+def initialize_continuous_webcam(model, camera_idx=1):
     """Continuous initialization mode - webcam feed."""
     
-    logger.info("Opening webcam (CONTINUOUS MODE)...")
-    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    logger.info(f"Opening camera {camera_idx}...")
+    cap = cv2.VideoCapture(camera_idx, cv2.CAP_DSHOW)
     
     if not cap.isOpened():
-        logger.warning("DirectShow failed, trying default backend...")
-        cap = cv2.VideoCapture(0)
+        logger.warning(f"Camera {camera_idx} not available with DirectShow, trying default backend...")
+        cap = cv2.VideoCapture(camera_idx)
     
     if not cap.isOpened():
-        logger.error("Failed to open webcam!")
+        logger.error(f"Failed to open camera {camera_idx}!")
         return
     
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -230,7 +256,7 @@ def main():
     """Test segmentation model."""
     
     base_dir = Path(__file__).parent.parent.parent
-    model_path = base_dir / "models" / "custom" / "bin_segmentation_multi.pt"
+    model_path = base_dir / "models" / "custom" / "bin_segmentation_training_4.pt"
     
     if not model_path.exists():
         logger.error(f"Model not found: {model_path}")
@@ -265,9 +291,22 @@ def main():
                 cv2.destroyAllWindows()
     
     elif mode == "2":
-        # Continuous
+        # Continuous - list cameras and let user select
         logger.info("")
-        initialize_continuous_webcam(model)
+        cameras = list_available_cameras()
+        
+        if cameras:
+            logger.info("")
+            for cam in cameras:
+                print(f"  {cam['index']} = Camera {cam['index']} ({cam['resolution']})")
+            
+            camera_choice = input("\nSelect camera (default is typically 1 for Logitech USB): ").strip()
+            camera_idx = int(camera_choice) if camera_choice.isdigit() else 1
+            
+            logger.info("")
+            initialize_continuous_webcam(model, camera_idx=camera_idx)
+        else:
+            logger.error("No cameras available!")
     
     elif mode == "3":
         # Batch
