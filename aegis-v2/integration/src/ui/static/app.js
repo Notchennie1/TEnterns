@@ -24,12 +24,11 @@ const FSM_DISPLAY = {
 // ── Main poll loop ──────────────────────────────────
 async function poll() {
   try {
-    const [binsRes, layoutRes, handsRes, fsmRes, errRes, statsRes] = await Promise.all([
+    const [binsRes, layoutRes, handsRes, fsmRes, statsRes] = await Promise.all([
       fetch("/api/bins"),
       fetch("/api/layout"),
       fetch("/api/hands"),
       fetch("/api/fsm"),
-      fetch("/api/errors"),
       fetch("/api/stats"),
     ]);
 
@@ -39,14 +38,12 @@ async function poll() {
     const layout = await layoutRes.json();
     const hands  = await handsRes.json();
     const fsm    = await fsmRes.json();
-    const errors = await errRes.json();
     const stats  = await statsRes.json();
 
     renderBins(bins, layout);
     renderFSM(fsm);
     renderHands(hands);
     renderStats(stats);
-    renderErrors(errors);
 
     document.getElementById("last-updated").textContent =
       "Updated: " + new Date().toLocaleTimeString();
@@ -103,7 +100,9 @@ function makeBinBox(binId, bin) {
   // Slot in the layout but no live data yet → render as a grey placeholder.
   if (!bin) {
     box.className = "bin grey";
-    box.innerHTML = '<div class="bin-id">' + binId + '</div>';
+    box.innerHTML = '<div class="bin-id">' + binId + '</div>'
+                  + makeOverrideControls(binId);
+    wireOverrideControls(box, binId);
     return box;
   }
 
@@ -121,6 +120,8 @@ function makeBinBox(binId, bin) {
     if (bin.weight) {
       inner += '<div class="bin-weight">' + Math.round(bin.weight) + 'g</div>';
     }
+  } else {
+    inner += '<div class="quantity">' + bin.current + '</div>';
   }
 
   if (bin.is_active && bin.handedness) {
@@ -128,8 +129,52 @@ function makeBinBox(binId, bin) {
            + bin.handedness.toUpperCase() + '</div>';
   }
 
+  inner += makeOverrideControls(bin.id);
+
   box.innerHTML = inner;
+  wireOverrideControls(box, bin.id);
   return box;
+}
+
+// ── Manual load-cell override controls ──────────────
+function makeOverrideControls(binId) {
+  return (
+    '<div class="bin-override" data-bin-id="' + binId + '">' +
+      '<button class="ov-btn ov-minus" title="Decrement pick count">−</button>' +
+      '<button class="ov-btn ov-plus" title="Increment pick count">+</button>' +
+    '</div>'
+  );
+}
+
+function wireOverrideControls(box, binId) {
+  const minus = box.querySelector(".ov-minus");
+  const plus  = box.querySelector(".ov-plus");
+  if (minus) minus.addEventListener("click", function(e) {
+    e.stopPropagation();
+    overridePick(binId, -1);
+  });
+  if (plus) plus.addEventListener("click", function(e) {
+    e.stopPropagation();
+    overridePick(binId, +1);
+  });
+}
+
+async function overridePick(binId, delta) {
+  try {
+    const res = await fetch("/api/bins/" + encodeURIComponent(binId) + "/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta: delta }),
+    });
+    if (!res.ok) {
+      console.warn("Override failed:", binId, delta, res.status);
+      return;
+    }
+    // Refresh immediately so the operator sees the change without waiting for the next poll.
+    poll();
+  } catch (err) {
+    console.error("Override error:", err);
+  }
 }
 
 // ── FSM state ───────────────────────────────────────
@@ -209,34 +254,9 @@ function formatUptime(seconds) {
   return h + "h " + m + "m";
 }
 
-// ── Error overlay ───────────────────────────────────
-function renderErrors(errors) {
-  const overlay = document.getElementById("err-overlay");
-  const content = document.getElementById("err-content");
-
-  // Only show errors from the last 10 seconds
-  const recent = errors.filter(function(e) {
-    return (Date.now() / 1000 - e.timestamp) < 10;
-  });
-
-  if (recent.length > 0) {
-    const lines = recent.map(function(e) {
-      return e.bin_id + ": " + e.message;
-    });
-    content.innerHTML =
-      "WARNING<br>" +
-      "Gate Error Detected<br><br>" +
-      lines.join("<br>");
-    overlay.classList.remove("hidden");
-  } else {
-    overlay.classList.add("hidden");
-  }
-}
-
-function dismissError() {
-  document.getElementById("err-overlay").classList.add("hidden");
-  fetch("/api/errors/clear", { method: "POST" });
-}
+// A hand in a not-in-use bin (status "wrong_bin") lights up that bin directly
+// via the .bin.wrong_bin CSS glow — no full-screen overlay. The illumination
+// clears the instant the hand leaves, since status is recomputed every poll.
 
 // ── Start polling ───────────────────────────────────
 poll();

@@ -20,7 +20,7 @@ bin_detector:
   # computed for you. Each entry is the bin count for that layer (top → bottom).
   # Leave commented (or null) to use the trained model instead.
   #   manual_layout: [4, 3]       # layer 0 → 4 bins, layer 1 → 3 bins
-  manual_layout: null 
+  manual_layout: [4,3]
 
 # --- Hand Tracker (from hand-models) -------------
 hand_tracker:
@@ -36,6 +36,17 @@ bin_assignment:
   method: "point_in_polygon"      # "point_in_polygon" | "nearest_centroid" | "area_overlap"
   hand_keypoint: "index_tip"      # Which landmark to use as the "reaching" point
   overlap_threshold: 0.3          # Min overlap ratio for area_overlap method
+
+# --- Work Order (target pick counts) -------------
+# Predetermined target quantity for each bin, shown in the dashboard as
+# "current / target" (e.g. 2/5). Structure mirrors bin_detector.manual_layout:
+# one inner list per layer (top → bottom), one number per bin (left → right).
+# A bin with no entry (or 0) is treated as not part of the job and shows just
+# the live count with no target. Leave commented to disable targets entirely.
+work_order:
+  targets:
+    - [5, 0, 5, 5]   # layer 0 → 4 bins
+    - [3, 3, 3]      # layer 1 → 3 bins
 
 # --- Triple-Gate FSM (Kinetic Gating) ------------
 fsm:

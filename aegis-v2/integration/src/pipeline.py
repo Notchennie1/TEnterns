@@ -95,6 +95,7 @@ class Pipeline:
         try:
             self._open_camera()
             self._detect_bins()
+            self._apply_work_order()
             self._init_loadcells()
             self._load_hand_tracker()
             self._create_engines()
@@ -190,6 +191,37 @@ class Pipeline:
                     "confidence": 1.0,
                 }
         return geofences
+
+    def _apply_work_order(self) -> None:
+        """Load predetermined target pick counts and push them to the dashboard.
+
+        ``work_order.targets`` is a list-of-lists mirroring the bin layout: one
+        inner list per layer, one number per bin. Each maps to a ``bin_{row}_{col}``
+        id so the dashboard can show "current / target" (e.g. 2/5). Bins with no
+        entry keep target 0 and display just the live count.
+        """
+        wo_cfg = self._config.get("work_order", {}) or {}
+        targets = wo_cfg.get("targets")
+        if not targets:
+            logger.info("No work order configured — bins show live count only")
+            return
+
+        # Build a target for EVERY bin on the layout. A bin's target comes from
+        # the targets grid by its (row, col); bins with target 0 — or absent
+        # from the grid entirely — are marked not-in-use (using=False) by
+        # set_work_order, so a hand entering one trips the wrong-bin warning.
+        bin_targets: dict = {}
+        for bin_id in self._geofences:
+            row, col = PipelineState._parse_bin_id(bin_id)
+            try:
+                bin_targets[bin_id] = int(targets[row][col])
+            except (IndexError, TypeError, ValueError):
+                bin_targets[bin_id] = 0
+
+        self._state.set_work_order(bin_targets)
+        in_use = sum(1 for t in bin_targets.values() if t > 0)
+        logger.info("Work order applied: %d/%d bins in use, %d total items",
+                    in_use, len(bin_targets), sum(bin_targets.values()))
 
     def _init_loadcells(self) -> None:
         """Initialise the load-cell reader and merge its layout into shared state.
