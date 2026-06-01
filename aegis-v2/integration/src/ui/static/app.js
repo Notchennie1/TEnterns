@@ -24,27 +24,26 @@ const FSM_DISPLAY = {
 // ── Main poll loop ──────────────────────────────────
 async function poll() {
   try {
-    const [binsRes, handsRes, fsmRes, errRes, statsRes] = await Promise.all([
+    const [binsRes, layoutRes, handsRes, fsmRes, statsRes] = await Promise.all([
       fetch("/api/bins"),
+      fetch("/api/layout"),
       fetch("/api/hands"),
       fetch("/api/fsm"),
-      fetch("/api/errors"),
       fetch("/api/stats"),
     ]);
 
     if (!binsRes.ok) throw new Error("Backend error");
 
     const bins   = await binsRes.json();
+    const layout = await layoutRes.json();
     const hands  = await handsRes.json();
     const fsm    = await fsmRes.json();
-    const errors = await errRes.json();
     const stats  = await statsRes.json();
 
-    renderBins(bins);
+    renderBins(bins, layout);
     renderFSM(fsm);
     renderHands(hands);
     renderStats(stats);
-    renderErrors(errors);
 
     document.getElementById("last-updated").textContent =
       "Updated: " + new Date().toLocaleTimeString();
@@ -57,38 +56,124 @@ async function poll() {
   }
 }
 
-// ── Bin grid ────────────────────────────────────────
-function renderBins(bins) {
+// ── Bin grid (grouped by layer) ─────────────────────
+function renderBins(bins, layout) {
   const container = document.getElementById("bins");
   container.innerHTML = "";
 
-  for (const bin of bins) {
-    const box = document.createElement("div");
-    const status = String(bin.status).trim().toLowerCase();
+  // Index live bin data by id for quick lookup per slot.
+  const byId = {};
+  for (const bin of bins) byId[bin.id] = bin;
 
-    box.className = "bin " + status;
+  const layers = (layout && layout.layers) || [];
 
-    let inner = '<div class="bin-id">' + bin.id + '</div>';
-
-    if (status !== "grey") {
-      if (bin.total > 0) {
-        inner += '<div class="quantity">' + bin.current + '/' + bin.total + '</div>';
-      } else {
-        inner += '<div class="quantity">' + bin.current + '</div>';
-      }
-    }
-
-    if (bin.is_active && bin.handedness) {
-      inner += '<div class="bin-badge" style="background:#3b82f6;color:#fff;">'
-             + bin.handedness.toUpperCase() + '</div>';
-    }
-
-    box.innerHTML = inner;
-    container.appendChild(box);
+  if (layers.length === 0) {
+    container.innerHTML = '<div class="no-hands">No bins detected yet</div>';
+    return;
   }
 
-  if (bins.length === 0) {
-    container.innerHTML = '<div class="no-hands">No bins detected yet</div>';
+  for (const layer of layers) {
+    const row = document.createElement("div");
+    row.className = "bin-layer";
+
+    const label = document.createElement("div");
+    label.className = "layer-label";
+    label.textContent = "L" + layer.layer;
+    row.appendChild(label);
+
+    const grid = document.createElement("div");
+    grid.className = "layer-grid";
+    grid.style.gridTemplateColumns = "repeat(" + Math.max(layer.num_bins, 1) + ", 1fr)";
+
+    for (const binId of layer.bin_ids) {
+      grid.appendChild(makeBinBox(binId, byId[binId]));
+    }
+
+    row.appendChild(grid);
+    container.appendChild(row);
+  }
+}
+
+function makeBinBox(binId, bin) {
+  const box = document.createElement("div");
+
+  // Slot in the layout but no live data yet → render as a grey placeholder.
+  if (!bin) {
+    box.className = "bin grey";
+    box.innerHTML = '<div class="bin-id">' + binId + '</div>'
+                  + makeOverrideControls(binId);
+    wireOverrideControls(box, binId);
+    return box;
+  }
+
+  const status = String(bin.status).trim().toLowerCase();
+  box.className = "bin " + status;
+
+  let inner = '<div class="bin-id">' + bin.id + '</div>';
+
+  if (status !== "grey") {
+    if (bin.total > 0) {
+      inner += '<div class="quantity">' + bin.current + '/' + bin.total + '</div>';
+    } else {
+      inner += '<div class="quantity">' + bin.current + '</div>';
+    }
+    if (bin.weight) {
+      inner += '<div class="bin-weight">' + Math.round(bin.weight) + 'g</div>';
+    }
+  } else {
+    inner += '<div class="quantity">' + bin.current + '</div>';
+  }
+
+  if (bin.is_active && bin.handedness) {
+    inner += '<div class="bin-badge" style="background:#3b82f6;color:#fff;">'
+           + bin.handedness.toUpperCase() + '</div>';
+  }
+
+  inner += makeOverrideControls(bin.id);
+
+  box.innerHTML = inner;
+  wireOverrideControls(box, bin.id);
+  return box;
+}
+
+// ── Manual load-cell override controls ──────────────
+function makeOverrideControls(binId) {
+  return (
+    '<div class="bin-override" data-bin-id="' + binId + '">' +
+      '<button class="ov-btn ov-minus" title="Decrement pick count">−</button>' +
+      '<button class="ov-btn ov-plus" title="Increment pick count">+</button>' +
+    '</div>'
+  );
+}
+
+function wireOverrideControls(box, binId) {
+  const minus = box.querySelector(".ov-minus");
+  const plus  = box.querySelector(".ov-plus");
+  if (minus) minus.addEventListener("click", function(e) {
+    e.stopPropagation();
+    overridePick(binId, -1);
+  });
+  if (plus) plus.addEventListener("click", function(e) {
+    e.stopPropagation();
+    overridePick(binId, +1);
+  });
+}
+
+async function overridePick(binId, delta) {
+  try {
+    const res = await fetch("/api/bins/" + encodeURIComponent(binId) + "/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ delta: delta }),
+    });
+    if (!res.ok) {
+      console.warn("Override failed:", binId, delta, res.status);
+      return;
+    }
+    // Refresh immediately so the operator sees the change without waiting for the next poll.
+    poll();
+  } catch (err) {
+    console.error("Override error:", err);
   }
 }
 
@@ -169,34 +254,9 @@ function formatUptime(seconds) {
   return h + "h " + m + "m";
 }
 
-// ── Error overlay ───────────────────────────────────
-function renderErrors(errors) {
-  const overlay = document.getElementById("err-overlay");
-  const content = document.getElementById("err-content");
-
-  // Only show errors from the last 10 seconds
-  const recent = errors.filter(function(e) {
-    return (Date.now() / 1000 - e.timestamp) < 10;
-  });
-
-  if (recent.length > 0) {
-    const lines = recent.map(function(e) {
-      return e.bin_id + ": " + e.message;
-    });
-    content.innerHTML =
-      "WARNING<br>" +
-      "Gate Error Detected<br><br>" +
-      lines.join("<br>");
-    overlay.classList.remove("hidden");
-  } else {
-    overlay.classList.add("hidden");
-  }
-}
-
-function dismissError() {
-  document.getElementById("err-overlay").classList.add("hidden");
-  fetch("/api/errors/clear", { method: "POST" });
-}
+// A hand in a not-in-use bin (status "wrong_bin") lights up that bin directly
+// via the .bin.wrong_bin CSS glow — no full-screen overlay. The illumination
+// clears the instant the hand leaves, since status is recomputed every poll.
 
 // ── Start polling ───────────────────────────────────
 poll();
