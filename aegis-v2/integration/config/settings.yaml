@@ -9,10 +9,18 @@ camera:
 
 # --- Bin Boundary Detector (from cv-models) ------
 bin_detector:
-  model_path: "../cv-models/models/weights/best.pt"   # Trained YOLOv8-seg weights
+  model_path: "./cv-models/models/weights/best.pt"   # Trained YOLOv8-seg weights
   confidence_threshold: 0.5
   iou_threshold: 0.45
   device: "cpu"                   # "cpu" or "cuda:0"
+
+  # Manual layout override. When set, CV detection is skipped entirely and the
+  # bins are laid out as an even grid across the camera frame — one row per
+  # layer. You only say HOW MANY bins each layer has; the pixel boxes are
+  # computed for you. Each entry is the bin count for that layer (top → bottom).
+  # Leave commented (or null) to use the trained model instead.
+  #   manual_layout: [4, 3]       # layer 0 → 4 bins, layer 1 → 3 bins
+  manual_layout: [4,3]
 
 # --- Hand Tracker (from hand-models) -------------
 hand_tracker:
@@ -28,6 +36,17 @@ bin_assignment:
   method: "point_in_polygon"      # "point_in_polygon" | "nearest_centroid" | "area_overlap"
   hand_keypoint: "index_tip"      # Which landmark to use as the "reaching" point
   overlap_threshold: 0.3          # Min overlap ratio for area_overlap method
+
+# --- Work Order (target pick counts) -------------
+# Predetermined target quantity for each bin, shown in the dashboard as
+# "current / target" (e.g. 2/5). Structure mirrors bin_detector.manual_layout:
+# one inner list per layer (top → bottom), one number per bin (left → right).
+# A bin with no entry (or 0) is treated as not part of the job and shows just
+# the live count with no target. Leave commented to disable targets entirely.
+work_order:
+  targets:
+    - [5, 0, 5, 5]   # layer 0 → 4 bins
+    - [3, 3, 3]      # layer 1 → 3 bins
 
 # --- Triple-Gate FSM (Kinetic Gating) ------------
 fsm:
@@ -49,6 +68,11 @@ sensing:
     enabled: false
     port: "COM3"
     baudrate: 115200
+  # Load-cell array — supplies the bin grid layout (layers × bins) and
+  # per-bin weights. Driver not implemented yet; while disabled, the dashboard
+  # layout comes from CV detection only.
+  loadcells:
+    enabled: false
 
 # --- OpenCV Camera Overlay -----------------------
 ui:
