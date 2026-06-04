@@ -195,14 +195,17 @@ class LoadCellReader:
 
 # ── Standalone tester ────────────────────────────────────────
 # Run directly to verify the ESP32 -> host serial link in isolation:
-#     python -m sensing.loadcell --port /dev/ttyUSB0
-# (or `python loadcell.py ...`). Prints the latest cached weights once a
-# second until Ctrl-C. Needs pyserial: pip install pyserial
+#     python3 -m sensing.loadcell --port /dev/ttyUSB1
+# Prints, once a second until Ctrl-C: how many items have been grabbed per bin
+# (via InventoryTracker + config/inventory.yaml) plus the total weight change.
+# Needs pyserial: pip install pyserial
 if __name__ == "__main__":
     import argparse
 
+    from inventory import InventoryTracker
+
     parser = argparse.ArgumentParser(description="Standalone load-cell serial tester")
-    parser.add_argument("--port", default="/dev/ttyUSB0",
+    parser.add_argument("--port", default="/dev/ttyUSB1",
                         help="serial device (Windows: COM3)")
     parser.add_argument("--baudrate", type=int, default=115200)
     parser.add_argument("--stale-after", type=float, default=2.0,
@@ -218,12 +221,21 @@ if __name__ == "__main__":
         "baudrate": args.baudrate,
         "stale_after": args.stale_after,
     })
+    tracker = InventoryTracker()   # loads config/inventory.yaml
 
     print(f"Listening on {args.port} @ {args.baudrate} baud. Ctrl-C to stop.")
     try:
         while True:
             connected = reader.is_connected()
-            print(f"connected={connected}  weights={reader.get_weights()}")
+            weights = reader.get_weights()
+            taken = tracker.items_taken(weights)
+            # Items grabbed per bin (with the item name), e.g. "bin_0_0(bolt_m6): 5"
+            grabbed = " ".join(f"{bin_id}({tracker.item_for(bin_id)}): {n}"
+                               for bin_id, n in sorted(taken.items()))
+            total_items = tracker.total_taken(weights)
+            total_change = sum(weights.values())   # signed grams since tare
+            print(f"connected={connected}  {grabbed}  "
+                  f"| total_items={total_items}  total_change={total_change:.2f}g")
             time.sleep(1.0)
     except KeyboardInterrupt:
         pass
