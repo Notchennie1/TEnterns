@@ -3,7 +3,7 @@
 
 // --- Pin definitions ---
 // Change these to match whichever GPIO pins you used
-const int LOADCELL_DOUT_PIN = 21;
+const int LOADCELL_DOUT_PIN = 19;
 const int LOADCELL_SCK_PIN  = 5;
 
 HX711 scale;
@@ -14,7 +14,7 @@ float calib_factor = 1625.3196;
 const bool doCalib = true;
 
 // Known reference weight (in grams) you will place on the cell during calibration.
-const float KNOWN_WEIGHT_G = 57.1;
+const float KNOWN_WEIGHT_G = 183.3;
 // How many samples to average when measuring.
 const int CALIB_SAMPLES = 20;
 

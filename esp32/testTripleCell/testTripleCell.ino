@@ -33,8 +33,7 @@ const float cellX[3] = {   0.0f, 29.87f,  -29.87f };
 const float cellY[3] = {  34.5f, -17.25f,  -17.25f  };
 
 // ---------- FILTER ----------
-const int N_SAMPLES = 3;    // readings averaged per cell per cycle
-                            // (3 keeps each JSON line ~1s; HX711 is ~10 SPS)
+const int N_SAMPLES = 10;   // readings averaged per cell per cycle
 
 void setup() {
   Serial.begin(115200);
@@ -65,6 +64,8 @@ void setup() {
     }
     Serial.println(F("Boot tare done. Using stored scale."));
   }
+
+  Serial.println(F("Total_g, cell1_g,cell2_g,cell3_g"));
 }
 
 void loop() {
@@ -84,28 +85,21 @@ void loop() {
   // --- load centroid ("triangulation") ---
   // Weighted average of cell positions by the force each carries.
   // Only valid when total is meaningfully > 0.
-  // float cx = 0, cy = 0;
-  // if (total > 1.0) {                 // ignore noise near zero
-  //   for (int i = 0; i < 3; i++) {
-  //     cx += g[i] * cellX[i];
-  //     cy += g[i] * cellY[i];
-  //   }
-  //   cx /= total;
-  //   cy /= total;
-  // }
+  float cx = 0, cy = 0;
+  if (total > 1.0) {                 // ignore noise near zero
+    for (int i = 0; i < 3; i++) {
+      cx += g[i] * cellX[i];
+      cy += g[i] * cellY[i];
+    }
+    cx /= total;
+    cy /= total;
+  }
 
-  // --- CSV of weights (total + per-cell), uncomment to use ---
-  // Serial.print(total, 2); Serial.print(',');
-  // Serial.print(g[0], 2);  Serial.print(',');
-  // Serial.print(g[1], 2);  Serial.print(',');
-  // Serial.println(g[2], 2);
-
-  // --- emit per-bin weight as newline-delimited JSON for the host ---
-  // loadcell.py expects one JSON object per line: {"bins": {"bin_0_0": <g>}}
-  // This platform is a single bin (3 cells summed), keyed bin_0_0.
-  Serial.print(F("{\"bins\":{\"bin_0_0\":"));
-  Serial.print(total, 2);
-  Serial.println(F("}}"));
+  // --- output as CSV ---
+  Serial.println(total, 2); Serial.print(',');
+  Serial.print(g[0], 2); Serial.print(',');
+  Serial.print(g[1], 2); Serial.print(',');
+  Serial.println(g[2], 2); Serial.print(',');
 
   delay(200);   // ~5 Hz output
 }
