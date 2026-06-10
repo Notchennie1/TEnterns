@@ -121,3 +121,21 @@ def test_non_finite_center_detections_are_dropped():
     res = ga.allocate_grid(top_dets() + [bad] + bottom_dets(), FRAME_W)
     # the NaN detection is ignored; the real 6+3 grid still maps cleanly to 1..9
     assert all(res[f"bin_{i}"]["detected"] for i in range(1, 10))
+
+
+def test_index_bins_pure_transform():
+    import snapshot_obb as so
+    payload = {
+        "frame_w": FRAME_W, "frame_h": 720,
+        "bins": [
+            {"id": 0, "corners": [[10, 190], [30, 190], [30, 210], [10, 210]],
+             "center": [int(0.5 * FRAME_W / 6), 200], "conf": 0.8},
+            {"id": 1, "corners": [[10, 550], [30, 550], [30, 570], [10, 570]],
+             "center": [int(0.5 * FRAME_W / 3), 560], "conf": 0.7},
+        ],
+    }
+    out = so.index_bins(payload)
+    assert out["bins"]["bin_1"]["detected"] is True       # top-left small bin
+    assert out["bins"]["bin_7"]["detected"] is True       # bottom-left big bin
+    assert out["bins"]["bin_2"]["detected"] is False      # nothing there
+    assert out["rule"] == "rotate180_then_band_split"
