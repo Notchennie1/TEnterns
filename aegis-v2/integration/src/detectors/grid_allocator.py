@@ -116,3 +116,74 @@ def split_rows_by_y(detections: list, num_rows: int) -> list:
         start = b + 1
     rows[band] = ordered[start:]
     return rows
+
+
+def _assign_row(dets_in_row: list, cells: list, frame_w: float, skeleton: dict) -> None:
+    """Place each detection into its frame-band cell (nearest unused on collision).
+
+    ``cells`` is the row's list of (bin_id, info) ordered left->right. The band a
+    detection falls in is ``floor(cx / frame_w * num_bins)``; with the rig filling the
+    frame this is the bin's physical column. A collision snaps to the nearest free band.
+    """
+    num_bins = len(cells)
+    if num_bins == 0:
+        return
+    used: set[int] = set()
+    for det in sorted(dets_in_row, key=_cx):
+        frac = _cx(det) / float(frame_w)
+        pref = max(0, min(num_bins - 1, int(math.floor(frac * num_bins))))
+        col = pref
+        if col in used:
+            # nearest unused band by distance to band centre
+            free = [c for c in range(num_bins) if c not in used]
+            if not free:
+                logger.warning("Extra detection dropped (row full): cx=%.1f", _cx(det))
+                continue
+            col = min(free, key=lambda c: abs((c + 0.5) / num_bins - frac))
+        used.add(col)
+        bin_id, _info = cells[col]
+        skeleton[bin_id].update({
+            "corners": det["corners"],
+            "center": [float(det["center"][0]), float(det["center"][1])],
+            "confidence": float(det.get("conf", 0.0)),
+            "detected": True,
+        })
+
+
+def allocate_grid(detections: list, frame_w: int, layout: list = DEFAULT_LAYOUT) -> dict:
+    """Place raw OBB detections onto the fixed pre-indexed grid.
+
+    Parameters
+    ----------
+    detections : list of {"corners": [[x,y]*4], "center": [cx, cy], "conf": float}
+        Upright (already rotated) detections, any order.
+    frame_w : snapshot width in pixels (band reference; rig fills the frame).
+    layout : per-row bin spans; defaults to the fixed 6+3 rig.
+
+    Returns
+    -------
+    dict keyed ``bin_{index}`` (see module docstring).
+    """
+    skeleton = build_skeleton(layout)
+    num_rows = len(layout)
+    if not detections or num_rows == 0:
+        return skeleton
+
+    # (row, col) -> bin_id lookup, cells ordered left->right per row
+    cells_by_row: list = [[] for _ in range(num_rows)]
+    for bin_id, info in skeleton.items():
+        cells_by_row[info["row"]].append((bin_id, info))
+    for r in range(num_rows):
+        cells_by_row[r].sort(key=lambda t: t[1]["col"])
+
+    rows = split_rows_by_y(detections, num_rows)
+    for r in range(num_rows):
+        _assign_row(rows[r], cells_by_row[r], frame_w, skeleton)
+
+    detected = sum(1 for v in skeleton.values() if v["detected"])
+    per_row = [sum(1 for d in rows[r]) for r in range(num_rows)]
+    expected = [len(layout[r]) for r in range(num_rows)]
+    if per_row != expected:
+        logger.warning("Detected counts %s differ from expected %s", per_row, expected)
+    logger.info("Grid allocated: %d/%d cells filled", detected, len(skeleton))
+    return skeleton

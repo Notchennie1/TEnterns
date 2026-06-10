@@ -56,3 +56,53 @@ def test_split_rows_single_row_only():
     top = [make_det(x, 200) for x in (100, 500, 900)]
     rows = ga.split_rows_by_y(top, num_rows=2)
     assert len(rows[0]) == 3 and rows[1] == []
+
+
+def top_dets():
+    # one bin centred in each of the 6 equal frame bands (band width = 1280/6)
+    return [make_det(int((c + 0.5) * FRAME_W / 6), 200) for c in range(6)]
+
+
+def bottom_dets(cols=(0, 1, 2)):
+    # bottom row has 3 bins -> band width = 1280/3
+    return [make_det(int((c + 0.5) * FRAME_W / 3), 560) for c in cols]
+
+
+def test_full_detection_maps_to_1_through_9():
+    res = ga.allocate_grid(top_dets() + bottom_dets(), FRAME_W)
+    assert all(res[f"bin_{i}"]["detected"] for i in range(1, 10))
+    assert res["bin_1"]["corners"] is not None
+    assert res["bin_7"]["confidence"] == 0.9
+
+
+def test_missing_middle_top_bin_leaves_that_index_empty():
+    dets = [d for c, d in enumerate(top_dets()) if c != 2]  # drop band 2 -> index 3
+    res = ga.allocate_grid(dets + bottom_dets(), FRAME_W)
+    assert res["bin_3"]["detected"] is False        # the gap lands on index 3…
+    assert res["bin_2"]["detected"] is True          # …neighbours unaffected
+    assert res["bin_4"]["detected"] is True
+    assert sum(res[f"bin_{i}"]["detected"] for i in range(1, 7)) == 5
+
+
+def test_missing_middle_bottom_bin():
+    res = ga.allocate_grid(top_dets() + bottom_dets(cols=(0, 2)), FRAME_W)
+    assert res["bin_8"]["detected"] is False         # middle bottom = index 8
+    assert res["bin_7"]["detected"] is True and res["bin_9"]["detected"] is True
+
+
+def test_out_of_order_x_is_placed_by_position():
+    res = ga.allocate_grid(list(reversed(top_dets())) + bottom_dets(), FRAME_W)
+    assert all(res[f"bin_{i}"]["detected"] for i in range(1, 7))
+
+
+def test_empty_detection_returns_full_placeholder_grid():
+    res = ga.allocate_grid([], FRAME_W)
+    assert len(res) == 9
+    assert all(res[f"bin_{i}"]["detected"] is False for i in range(1, 10))
+
+
+def test_extra_detection_in_row_is_dropped():
+    extra = make_det(int(0.5 * FRAME_W / 6) + 3, 200)   # 7th box in 6-band top row
+    res = ga.allocate_grid(top_dets() + [extra] + bottom_dets(), FRAME_W)
+    assert len(res) == 9
+    assert all(res[f"bin_{i}"]["detected"] for i in range(1, 7))
