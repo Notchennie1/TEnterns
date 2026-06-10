@@ -205,7 +205,7 @@ if __name__ == "__main__":
     from inventory import InventoryTracker
 
     parser = argparse.ArgumentParser(description="Standalone load-cell serial tester")
-    parser.add_argument("--port", default="/dev/ttyUSB1",
+    parser.add_argument("--port", default="/dev/ttyUSB0",
                         help="serial device (Windows: COM3)")
     parser.add_argument("--baudrate", type=int, default=115200)
     parser.add_argument("--stale-after", type=float, default=2.0,
