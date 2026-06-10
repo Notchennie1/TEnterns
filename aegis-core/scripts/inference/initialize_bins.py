@@ -276,7 +276,7 @@ def main():
     
     if mode == "1":
         # Single image
-        test_image = base_dir / "models" / "data" / "CDE3301.yolov8-seg" / "images" / "test"
+        test_image = base_dir / "models" / "data" / "Project 9.yolov8-seg" / "images" / "test"
         test_images = list(test_image.glob("*.jpg")) + list(test_image.glob("*.JPG"))
         
         if test_images:
