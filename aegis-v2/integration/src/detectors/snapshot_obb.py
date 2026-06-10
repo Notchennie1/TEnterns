@@ -5,8 +5,9 @@ Reads the aegis-core OBB handoff (``bins.json`` + ``snapshot.jpg``), allocates t
 detections onto the fixed 1-9 grid via ``grid_allocator``, writes ``bins_indexed.json``,
 and draws an overlay with the indices for visual verification.
 
-Run (from aegis-v2/integration):
-    python -m src.detectors.snapshot_obb \
+Run (from aegis-v2/integration) as a PATH SCRIPT — this bypasses the detectors
+package __init__, which eagerly imports cv2 / ultralytics:
+    python src/detectors/snapshot_obb.py \
         --bins ../../aegis-core/runs/bins_obb_raw/bins.json
 """
 from __future__ import annotations

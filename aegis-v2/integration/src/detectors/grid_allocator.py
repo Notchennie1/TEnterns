@@ -144,7 +144,10 @@ def _assign_row(dets_in_row: list, cells: list, frame_w: float, skeleton: dict) 
         pref = max(0, min(num_bins - 1, int(math.floor(frac * num_bins))))
         col = pref
         if col in used:
-            # nearest unused band by distance to band centre
+            # Collision: another detection already claimed this band. DELIBERATE under
+            # the "rig fills the frame" assumption — if a real bin is missing AND a
+            # duplicate lands in one band, the duplicate fills the empty cell. Acceptable
+            # for the fixed rig (robust dedup is in FUTURE_TASKS.md). Nearest free band:
             free = [c for c in range(num_bins) if c not in used]
             if not free:
                 logger.warning("Extra detection dropped (row full): cx=%.1f", _cx(det))
