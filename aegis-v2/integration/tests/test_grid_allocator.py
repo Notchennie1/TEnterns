@@ -106,3 +106,18 @@ def test_extra_detection_in_row_is_dropped():
     res = ga.allocate_grid(top_dets() + [extra] + bottom_dets(), FRAME_W)
     assert len(res) == 9
     assert all(res[f"bin_{i}"]["detected"] for i in range(1, 7))
+
+
+def test_degenerate_zero_height_single_row_not_split():
+    # boxes with zero usable height sharing one y must stay one row, not force-split
+    dets = [{"corners": [], "center": [x, 200.0], "conf": 0.9}
+            for x in (100, 500, 900)]
+    rows = ga.split_rows_by_y(dets, num_rows=2)
+    assert len(rows[0]) == 3 and rows[1] == []
+
+
+def test_non_finite_center_detections_are_dropped():
+    bad = {"corners": [[0, 0]], "center": [float("nan"), 200.0], "conf": 0.9}
+    res = ga.allocate_grid(top_dets() + [bad] + bottom_dets(), FRAME_W)
+    # the NaN detection is ignored; the real 6+3 grid still maps cleanly to 1..9
+    assert all(res[f"bin_{i}"]["detected"] for i in range(1, 10))

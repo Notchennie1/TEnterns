@@ -25,6 +25,10 @@ logger = logging.getLogger("aegis.detectors.grid_allocator")
 # Fixed rig: top row of 6 single-cell bins, bottom row of 3 double-cell bins.
 DEFAULT_LAYOUT = [[1, 1, 1, 1, 1, 1], [2, 2, 2]]
 
+# A vertical gap counts as a row boundary only if it exceeds this fraction of the
+# median bin height (keeps a single shared-y row from being force-split).
+Y_GAP_FACTOR = 0.5
+
 
 def _layer_name(row: int, num_rows: int) -> str:
     if num_rows == 2:
@@ -99,7 +103,13 @@ def split_rows_by_y(detections: list, num_rows: int) -> list:
         rows[0] = list(ordered)
         return rows
 
-    threshold = 0.5 * _median([_box_height(d) for d in ordered])
+    median_h = _median([_box_height(d) for d in ordered])
+    if median_h > 0:
+        threshold = Y_GAP_FACTOR * median_h
+    else:
+        # Heights unknown/degenerate: fall back to a fraction of the total y-span
+        # (0 when all detections share a y, so a single row is not force-split).
+        threshold = 0.25 * (_cy(ordered[-1]) - _cy(ordered[0]))
     # gaps[i] = vertical distance between ordered[i] and ordered[i+1]
     gaps = [(ordered[i + 1]["center"][1] - ordered[i]["center"][1], i)
             for i in range(len(ordered) - 1)]
@@ -140,6 +150,7 @@ def _assign_row(dets_in_row: list, cells: list, frame_w: float, skeleton: dict) 
                 logger.warning("Extra detection dropped (row full): cx=%.1f", _cx(det))
                 continue
             col = min(free, key=lambda c: abs((c + 0.5) / num_bins - frac))
+            logger.info("Detection snapped band %d->%d (collision)", pref, col)
         used.add(col)
         bin_id, _info = cells[col]
         skeleton[bin_id].update({
@@ -167,6 +178,16 @@ def allocate_grid(detections: list, frame_w: int, layout: list = DEFAULT_LAYOUT)
     skeleton = build_skeleton(layout)
     num_rows = len(layout)
     if not detections or num_rows == 0:
+        return skeleton
+
+    # Drop detections with non-finite centres (real OBB output can emit NaN/inf).
+    finite = [d for d in detections
+              if math.isfinite(_cx(d)) and math.isfinite(_cy(d))]
+    if len(finite) != len(detections):
+        logger.warning("Dropped %d detection(s) with non-finite centre",
+                       len(detections) - len(finite))
+    detections = finite
+    if not detections:
         return skeleton
 
     # (row, col) -> bin_id lookup, cells ordered left->right per row
