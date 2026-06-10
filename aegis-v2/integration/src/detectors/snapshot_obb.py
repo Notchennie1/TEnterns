@@ -73,11 +73,16 @@ def main():
     if not os.path.exists(args.bins):
         logger.error("bins.json not found: %s — run the aegis-core OBB script first.", args.bins)
         return
-    with open(args.bins) as f:
-        payload = json.load(f)
+    try:
+        with open(args.bins) as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error("Could not read %s: %s", args.bins, e)
+        return
 
     out = index_bins(payload)
     out_path = args.out or os.path.join(os.path.dirname(args.bins), "bins_indexed.json")
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(out, f, indent=2)
     filled = sum(1 for v in out["bins"].values() if v["detected"])
@@ -88,6 +93,9 @@ def main():
     if os.path.exists(snap):
         import cv2
         image = cv2.imread(snap)
+        if image is None:
+            logger.error("Could not read snapshot image: %s — skipping overlay.", snap)
+            return
         vis = _draw_overlay(image, out["bins"])
         vis_path = os.path.join(os.path.dirname(args.bins), "bins_indexed_overlay.jpg")
         cv2.imwrite(vis_path, vis)
