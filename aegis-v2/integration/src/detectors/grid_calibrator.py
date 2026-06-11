@@ -88,3 +88,71 @@ def calibrate_grid(detections: list) -> dict:
     logger.info("Calibrated 9 slots (top spacing=%.1f, bottom spacing=%.1f)",
                 slots["slot_1"]["row_spacing"], slots["slot_7"]["row_spacing"])
     return slots
+
+
+def match_to_grid(detections: list, calibration: dict) -> dict:
+    """Match a kitting-list snapshot's detections to calibrated slots.
+
+    Each detection is assigned a row (nearer of the two calibrated row mean-y's),
+    then matched greedily to the nearest *same-row* calibrated slot centre, one-to-one,
+    provided the distance is within ``0.5 * row_spacing``. Matched slots get the live
+    box and ``present=True``; unmatched slots stay ``present=False`` ("bin not there").
+    Detections matching no slot within cutoff are dropped with a warning.
+
+    ``calibration`` is the slots dict from ``calibrate_grid`` (or the ``"slots"`` value
+    loaded from grid_calibration.json).
+    """
+    # Skeleton: every calibrated slot, present=False to start.
+    result: dict = {}
+    for sid, info in calibration.items():
+        result[sid] = {
+            "index": info["index"],
+            "row": info["row"],
+            "layer": info["layer"],
+            "span": info["span"],
+            "present": False,
+        }
+    if not detections:
+        return result
+
+    # Calibrated row mean-y, to assign each detection a row.
+    row_cys: dict = {0: [], 1: []}
+    for info in calibration.values():
+        row_cys[info["row"]].append(info["center"][1])
+    row_mean = {r: (sum(v) / len(v) if v else 0.0) for r, v in row_cys.items()}
+
+    # All (distance, det_idx, slot_id, cutoff) candidate pairs within the same row.
+    pairs = []
+    for di, d in enumerate(detections):
+        cx, cy = _cx(d), _cy(d)
+        row = 0 if abs(cy - row_mean[0]) <= abs(cy - row_mean[1]) else 1
+        for sid, info in calibration.items():
+            if info["row"] != row:
+                continue
+            sx, sy = info["center"]
+            dist = math.hypot(cx - sx, cy - sy)
+            cutoff = 0.5 * float(info.get("row_spacing", 0.0))
+            pairs.append((dist, di, sid, cutoff))
+
+    pairs.sort(key=lambda t: t[0])
+    used_dets: set = set()
+    used_slots: set = set()
+    for dist, di, sid, cutoff in pairs:
+        if di in used_dets or sid in used_slots:
+            continue
+        if cutoff > 0 and dist > cutoff:
+            continue
+        d = detections[di]
+        result[sid].update({
+            "present": True,
+            "center": [_cx(d), _cy(d)],
+            "corners": d["corners"],
+            "confidence": float(d.get("conf", 0.0)),
+        })
+        used_dets.add(di)
+        used_slots.add(sid)
+
+    dropped = len(detections) - len(used_dets)
+    if dropped:
+        logger.warning("Dropped %d detection(s) not matched to any slot", dropped)
+    return result

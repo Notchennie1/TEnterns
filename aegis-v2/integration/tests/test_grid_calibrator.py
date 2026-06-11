@@ -80,3 +80,48 @@ def test_calibrate_rejects_degenerate_spacing():
     dets = top_dets() + [make_det(640, 560) for _ in range(3)]
     with pytest.raises(ValueError):
         gc.calibrate_grid(dets)
+
+
+def present_indices(occ):
+    return {info["index"] for info in occ.values() if info["present"]}
+
+
+def test_match_all_present():
+    cal = gc.calibrate_grid(full())
+    occ = gc.match_to_grid(full(), cal)
+    assert present_indices(occ) == set(range(1, 10))
+    assert occ["slot_1"]["present"] is True
+    assert occ["slot_1"]["confidence"] == 0.9
+    assert "corners" in occ["slot_1"]
+
+
+def test_match_missing_middle_top_bin():
+    cal = gc.calibrate_grid(full())
+    dets = [d for c, d in enumerate(top_dets()) if c != 2] + bottom_dets()  # drop top index 3
+    occ = gc.match_to_grid(dets, cal)
+    assert occ["slot_3"]["present"] is False
+    assert occ["slot_2"]["present"] is True and occ["slot_4"]["present"] is True
+    assert present_indices(occ) == {1, 2, 4, 5, 6, 7, 8, 9}
+
+
+def test_match_tolerates_small_jitter():
+    cal = gc.calibrate_grid(full())
+    jittered = [make_det(d["center"][0] + 8, d["center"][1] - 6) for d in full()]
+    occ = gc.match_to_grid(jittered, cal)
+    assert present_indices(occ) == set(range(1, 10))
+
+
+def test_match_drops_stray_far_detection():
+    cal = gc.calibrate_grid(full())
+    stray = make_det(30, 30)  # top-left corner, far from every slot
+    occ = gc.match_to_grid(full() + [stray], cal)
+    assert present_indices(occ) == set(range(1, 10))  # 9 reals matched, stray dropped
+
+
+def test_match_uses_nearest_center_not_index_order():
+    cal = gc.calibrate_grid(full())
+    # one bin sitting on slot_2's calibrated centre -> must match slot_2, not slot_1
+    s2 = cal["slot_2"]["center"]
+    occ = gc.match_to_grid([make_det(s2[0], s2[1])], cal)
+    assert occ["slot_2"]["present"] is True
+    assert occ["slot_1"]["present"] is False
