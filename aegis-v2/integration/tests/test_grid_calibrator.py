@@ -143,3 +143,20 @@ def test_match_two_detections_one_slot_closer_wins():
     occ = gc.match_to_grid([near, off], cal)
     assert occ["slot_2"]["present"] is True
     assert sum(1 for v in occ.values() if v["present"]) == 1  # off det dropped, not reassigned
+
+
+def test_build_calibration_and_occupancy_wrappers():
+    import snapshot_obb as so
+    payload = {"frame_w": FRAME_W, "frame_h": 720, "bins": full()}
+    cal_payload = so.build_calibration(payload)
+    assert cal_payload["frame_w"] == FRAME_W
+    assert cal_payload["source"] == "obb"
+    assert len(cal_payload["slots"]) == 9
+
+    # a later snapshot missing the middle top bin
+    later = {"frame_w": FRAME_W, "frame_h": 720,
+             "bins": [d for c, d in enumerate(top_dets()) if c != 2] + bottom_dets()}
+    occ_payload = so.build_occupancy(later, cal_payload)
+    assert occ_payload["rule"] == "calibrated_nearest_slot"
+    assert occ_payload["slots"]["slot_3"]["present"] is False
+    assert occ_payload["slots"]["slot_2"]["present"] is True
