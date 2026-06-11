@@ -125,3 +125,21 @@ def test_match_uses_nearest_center_not_index_order():
     occ = gc.match_to_grid([make_det(s2[0], s2[1])], cal)
     assert occ["slot_2"]["present"] is True
     assert occ["slot_1"]["present"] is False
+
+
+def test_match_drops_non_finite_detection():
+    cal = gc.calibrate_grid(full())
+    bad = make_det(640, 200)
+    bad["center"] = [float("nan"), float("nan")]
+    occ = gc.match_to_grid(full() + [bad], cal)
+    assert present_indices(occ) == set(range(1, 10))   # 9 reals matched, NaN dropped
+
+
+def test_match_two_detections_one_slot_closer_wins():
+    cal = gc.calibrate_grid(full())
+    s2 = cal["slot_2"]["center"]
+    near = make_det(s2[0], s2[1])             # exactly on slot_2
+    off = make_det(s2[0] + 15, s2[1] + 10)    # within slot_2 cutoff, not within any other slot
+    occ = gc.match_to_grid([near, off], cal)
+    assert occ["slot_2"]["present"] is True
+    assert sum(1 for v in occ.values() if v["present"]) == 1  # off det dropped, not reassigned

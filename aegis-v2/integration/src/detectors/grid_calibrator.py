@@ -115,13 +115,22 @@ def match_to_grid(detections: list, calibration: dict) -> dict:
     if not detections:
         return result
 
+    # Drop detections with non-finite centres (raw OBB output can emit NaN/inf).
+    finite = [d for d in detections if math.isfinite(_cx(d)) and math.isfinite(_cy(d))]
+    if len(finite) != len(detections):
+        logger.warning("Dropped %d detection(s) with non-finite centre",
+                       len(detections) - len(finite))
+    detections = finite
+    if not detections:
+        return result
+
     # Calibrated row mean-y, to assign each detection a row.
     row_cys: dict = {0: [], 1: []}
     for info in calibration.values():
         row_cys[info["row"]].append(info["center"][1])
-    row_mean = {r: (sum(v) / len(v) if v else 0.0) for r, v in row_cys.items()}
+    row_mean = {r: sum(v) / len(v) for r, v in row_cys.items()}
 
-    # All (distance, det_idx, slot_id, cutoff) candidate pairs within the same row.
+    # Same-row (distance, det_idx, slot_id) pairs within the match cutoff (0.5 * row spacing).
     pairs = []
     for di, d in enumerate(detections):
         cx, cy = _cx(d), _cy(d)
@@ -131,16 +140,16 @@ def match_to_grid(detections: list, calibration: dict) -> dict:
                 continue
             sx, sy = info["center"]
             dist = math.hypot(cx - sx, cy - sy)
-            cutoff = 0.5 * float(info.get("row_spacing", 0.0))
-            pairs.append((dist, di, sid, cutoff))
+            cutoff = 0.5 * float(info["row_spacing"])
+            if dist <= cutoff:
+                pairs.append((dist, di, sid))
 
+    # Greedy nearest, one-to-one.
     pairs.sort(key=lambda t: t[0])
     used_dets: set = set()
     used_slots: set = set()
-    for dist, di, sid, cutoff in pairs:
+    for dist, di, sid in pairs:
         if di in used_dets or sid in used_slots:
-            continue
-        if cutoff > 0 and dist > cutoff:
             continue
         d = detections[di]
         result[sid].update({
