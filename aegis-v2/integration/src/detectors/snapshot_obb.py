@@ -207,11 +207,17 @@ def main():
     if "slots" not in cal_payload:
         logger.error("Calibration %s has no 'slots' — recalibrate this workstation.", cal_path)
         return
-    if int(cal_payload.get("frame_w") or 0) != int(payload.get("frame_w") or 0):
-        logger.warning("Snapshot frame_w (%s) differs from calibration frame_w (%s); "
+    cal_w, cal_h = cal_payload.get("frame_w"), cal_payload.get("frame_h")
+    new_w, new_h = payload.get("frame_w"), payload.get("frame_h")
+    if (cal_w and new_w and cal_w != new_w) or (cal_h and new_h and cal_h != new_h):
+        logger.warning("Snapshot frame (%sx%s) differs from calibration (%sx%s); "
                        "matching may be off — recalibrate at the current resolution.",
-                       payload.get("frame_w"), cal_payload.get("frame_w"))
-    occ_payload = build_occupancy(payload, cal_payload)
+                       new_w, new_h, cal_w, cal_h)
+    try:
+        occ_payload = build_occupancy(payload, cal_payload)
+    except (KeyError, ZeroDivisionError, TypeError, ValueError) as e:
+        logger.error("Calibration %s is corrupt/incomplete (%s) — recalibrate.", cal_path, e)
+        return
     out_path = args.out or os.path.join(bins_dir, "occupancy.json")
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "w") as f:
