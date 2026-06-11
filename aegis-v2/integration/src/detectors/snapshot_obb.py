@@ -1,14 +1,23 @@
 """
 Snapshot OBB driver
 ===================
-Reads the aegis-core OBB handoff (``bins.json`` + ``snapshot.jpg``), allocates the
-detections onto the fixed 1-9 grid via ``grid_allocator``, writes ``bins_indexed.json``,
-and draws an overlay with the indices for visual verification.
+Two modes over the aegis-core OBB handoff (``bins.json`` + ``snapshot.jpg``):
+
+* ``--calibrate`` (once per workstation, all 9 bins): define the grid via
+  ``grid_calibrator.calibrate_grid`` and write ``grid_calibration.json`` (+ overlay).
+* default match mode (per kitting list): load the calibration and match the snapshot's
+  detections to the nearest slot via ``grid_calibrator.match_to_grid``, writing
+  ``occupancy.json`` and a green(present)/grey(absent) overlay.
+
+The older band-based ``index_bins`` (via ``grid_allocator``) is kept as a library
+fallback but is no longer used by ``main``.
 
 Run (from aegis-v2/integration) as a PATH SCRIPT — this bypasses the detectors
 package __init__, which eagerly imports cv2 / ultralytics:
-    python src/detectors/snapshot_obb.py \
-        --bins ../../aegis-core/runs/bins_obb_raw/bins.json
+    # calibrate the workstation (all 9 bins present)
+    python src/detectors/snapshot_obb.py --bins ../../aegis-core/runs/bins_obb_raw/bins.json --calibrate
+    # then, per kitting list
+    python src/detectors/snapshot_obb.py --bins ../../aegis-core/runs/bins_obb_raw/bins.json
 """
 from __future__ import annotations
 
@@ -189,8 +198,19 @@ def main():
         logger.error("No calibration at %s - calibrate this workstation first "
                      "(run with --calibrate on an all-9-bins snapshot).", cal_path)
         return
-    with open(cal_path) as f:
-        cal_payload = json.load(f)
+    try:
+        with open(cal_path) as f:
+            cal_payload = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error("Could not read calibration %s: %s — recalibrate.", cal_path, e)
+        return
+    if "slots" not in cal_payload:
+        logger.error("Calibration %s has no 'slots' — recalibrate this workstation.", cal_path)
+        return
+    if int(cal_payload.get("frame_w") or 0) != int(payload.get("frame_w") or 0):
+        logger.warning("Snapshot frame_w (%s) differs from calibration frame_w (%s); "
+                       "matching may be off — recalibrate at the current resolution.",
+                       payload.get("frame_w"), cal_payload.get("frame_w"))
     occ_payload = build_occupancy(payload, cal_payload)
     out_path = args.out or os.path.join(bins_dir, "occupancy.json")
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
