@@ -66,3 +66,17 @@ def test_calibrate_rejects_wrong_counts():
         gc.calibrate_grid(top_dets()[:5] + bottom_dets())   # 5 top
     with pytest.raises(ValueError):
         gc.calibrate_grid(top_dets() + bottom_dets()[:2])   # 2 bottom
+
+
+def test_calibrate_rejects_non_finite_center():
+    bad = full()
+    bad[0]["center"] = [float("nan"), 200.0]
+    with pytest.raises(ValueError):
+        gc.calibrate_grid(bad)
+
+
+def test_calibrate_rejects_degenerate_spacing():
+    # all 3 bottom bins detected at the same x -> zero row spacing -> reject
+    dets = top_dets() + [make_det(640, 560) for _ in range(3)]
+    with pytest.raises(ValueError):
+        gc.calibrate_grid(dets)

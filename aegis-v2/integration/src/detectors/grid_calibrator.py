@@ -46,6 +46,11 @@ def calibrate_grid(detections: list) -> dict:
     slot's centre, box, and the row's median centre-to-centre spacing (used as the
     match cutoff later). Raises ValueError if the snapshot isn't a clean 6+3.
     """
+    if not all(math.isfinite(_cx(d)) and math.isfinite(_cy(d)) for d in detections):
+        raise ValueError(
+            "Calibration snapshot contains non-finite detection centres; "
+            "retake the snapshot."
+        )
     rows = ga.split_rows_by_y(detections, num_rows=2)
     top, bottom = rows[0], rows[1]
     if len(top) != 6 or len(bottom) != 3:
@@ -64,6 +69,11 @@ def calibrate_grid(detections: list) -> dict:
         centers = [_cx(d) for d in ordered]
         diffs = [centers[i + 1] - centers[i] for i in range(len(centers) - 1)]
         row_spacing = _median(diffs)
+        if row_spacing <= 0:
+            raise ValueError(
+                f"Degenerate {layer}-row spacing ({row_spacing}); bins overlap in x. "
+                f"Retake the calibration snapshot with all 9 bins clearly separated."
+            )
         for d in ordered:
             slots[f"slot_{index}"] = {
                 "index": index,
@@ -75,4 +85,6 @@ def calibrate_grid(detections: list) -> dict:
                 "row_spacing": row_spacing,
             }
             index += 1
+    logger.info("Calibrated 9 slots (top spacing=%.1f, bottom spacing=%.1f)",
+                slots["slot_1"]["row_spacing"], slots["slot_7"]["row_spacing"])
     return slots
