@@ -61,3 +61,51 @@ def test_single_row_layout_makes_gate_inert():
     ])
     assert eng._top_rows == set()
     assert eng._bottom_bins == []
+
+
+def hand_with(landmarks, hand_id=0, handedness="right"):
+    """Build a HandDetection from a {name: (x, y)} dict."""
+    lms = [HandLandmark(name=n, x=xy[0], y=xy[1]) for n, xy in landmarks.items()]
+    return HandDetection(hand_id=hand_id, handedness=handedness, landmarks=lms)
+
+
+def test_anchor_prefers_in_frame_wrist():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    hand = hand_with({
+        "wrist": (150, 350),
+        "index_mcp": (150, 250), "middle_mcp": (160, 250),
+        "ring_mcp": (170, 250), "pinky_mcp": (180, 250),
+    })
+    assert eng._occlusion_anchor(hand, frame_shape=(720, 1280)) == (150, 350)
+
+
+def test_anchor_falls_back_to_knuckle_centroid_when_wrist_off_frame():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    hand = hand_with({
+        "wrist": (150, 9999),       # off the bottom of a 720-tall frame
+        "index_mcp": (100, 250), "middle_mcp": (200, 250),
+        "ring_mcp": (100, 350), "pinky_mcp": (200, 350),
+    })
+    # Centroid of the four knuckles = (150, 300).
+    assert eng._occlusion_anchor(hand, frame_shape=(720, 1280)) == (150, 300)
+
+
+def test_anchor_none_when_nothing_usable():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    hand = hand_with({"thumb_tip": (10, 10)})   # no wrist, no knuckles
+    assert eng._occlusion_anchor(hand, frame_shape=(720, 1280)) is None
+
+
+def test_anchor_skips_in_frame_check_when_no_frame_shape():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    hand = hand_with({
+        "wrist": (150, 9999),
+        "index_mcp": (100, 250), "middle_mcp": (200, 250),
+        "ring_mcp": (100, 350), "pinky_mcp": (200, 350),
+    })
+    # No frame_shape → in-frame check skipped → wrist used as-is.
+    assert eng._occlusion_anchor(hand, frame_shape=None) == (150, 9999)

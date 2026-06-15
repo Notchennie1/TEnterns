@@ -124,6 +124,29 @@ class BinAssignmentEngine:
         )
         self._global_occ_y = min(b.y_min for b in self._bottom_bins)
 
+    def _occlusion_anchor(self, hand, frame_shape):
+        """Most-proximal reliably-available landmark for the gate: the wrist if
+        finite and (when frame_shape is given) in-frame, else the centroid of the
+        finite MCP knuckles. Returns (x, y) or None."""
+        wrist = hand.get_landmark("wrist")
+        if wrist is not None and math.isfinite(wrist.x) and math.isfinite(wrist.y):
+            in_frame = True
+            if frame_shape is not None:
+                fh, fw = frame_shape[0], frame_shape[1]
+                in_frame = (0 <= wrist.x <= fw) and (0 <= wrist.y <= fh)
+            if in_frame:
+                return (wrist.x, wrist.y)
+
+        pts = []
+        for name in ("index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp"):
+            lm = hand.get_landmark(name)
+            if lm is not None and math.isfinite(lm.x) and math.isfinite(lm.y):
+                pts.append((lm.x, lm.y))
+        if not pts:
+            return None
+        n = len(pts)
+        return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
+
     def assign(self, hands: list) -> list[BinEvent]:
         """
         For each detected hand, determine which bin it is in.
