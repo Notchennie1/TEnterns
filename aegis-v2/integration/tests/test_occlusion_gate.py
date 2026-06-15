@@ -109,3 +109,88 @@ def test_anchor_skips_in_frame_check_when_no_frame_shape():
     })
     # No frame_shape → in-frame check skipped → wrist used as-is.
     assert eng._occlusion_anchor(hand, frame_shape=None) == (150, 9999)
+
+
+def reaching_hand(tip_xy, anchor_xy, handedness="right"):
+    """Hand whose index_tip is at tip_xy and whose knuckles (the anchor) cluster
+    at anchor_xy. No wrist → anchor resolves to the knuckle centroid = anchor_xy."""
+    ax, ay = anchor_xy
+    return hand_with({
+        "index_tip": tip_xy,
+        "index_mcp": (ax, ay), "middle_mcp": (ax, ay),
+        "ring_mcp": (ax, ay), "pinky_mcp": (ax, ay),
+    }, handedness=handedness)
+
+
+def assign_one(eng, hand, frame_shape=(720, 1280)):
+    events = eng.assign([hand], frame_shape=frame_shape)
+    assert len(events) == 1
+    return events[0]
+
+
+def test_false_top_hit_with_low_knuckles_is_reassigned():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    # index_tip extrapolated into top bin bin_0_1 (x150,y50); knuckles down in
+    # the bottom band under x150 (>= rim y=200) → reassign to bin_1_0.
+    hand = reaching_hand(tip_xy=(150, 50), anchor_xy=(150, 300))
+    ev = assign_one(eng, hand)
+    assert ev.bin_id == "bin_1_0"
+    assert ev.method == "occlusion_gate"
+    assert ev.confidence == 0.8       # taken from the bottom bin
+
+
+def test_genuine_top_reach_is_untouched():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    # Knuckles up near the top bin (y=60, above rim) → real top pick, no change.
+    hand = reaching_hand(tip_xy=(150, 50), anchor_xy=(150, 60))
+    ev = assign_one(eng, hand)
+    assert ev.bin_id == "bin_0_1"
+    assert ev.method == "point_in_polygon"
+
+
+def test_angled_reach_with_no_bottom_bin_is_suppressed():
+    eng = make_engine()
+    # Top row extends to x=500 (bin_0_4 at 400..500) but the bottom row only
+    # covers x 0..400, so a hit on bin_0_4 has no bottom bin beneath it.
+    bins = make_bins() + [
+        BinRegion(bin_id="bin_0_4", label="bin_0_4",
+                  x_min=400, x_max=500, y_min=0, y_max=100, confidence=0.9),
+    ]
+    eng.set_bin_map(bins)
+    # Both anchor x (450) and fingertip x (450) are off every bottom bin, and the
+    # anchor is low (y=300 >= global rim 200) → clearly a bottom reach, no target.
+    hand = reaching_hand(tip_xy=(450, 50), anchor_xy=(450, 300))
+    ev = assign_one(eng, hand)
+    assert ev.bin_id is None
+    assert ev.method == "occlusion_gate"
+
+
+def test_disabled_gate_is_passthrough():
+    eng = make_engine(enabled=False)
+    eng.set_bin_map(make_bins())
+    hand = reaching_hand(tip_xy=(150, 50), anchor_xy=(150, 300))
+    ev = assign_one(eng, hand)
+    assert ev.bin_id == "bin_0_1"
+    assert ev.method == "point_in_polygon"
+
+
+def test_assign_without_frame_shape_still_works():
+    eng = make_engine()
+    eng.set_bin_map(make_bins())
+    hand = reaching_hand(tip_xy=(150, 50), anchor_xy=(150, 300))
+    events = eng.assign([hand])          # no frame_shape
+    assert events[0].bin_id == "bin_1_0"
+
+
+def test_single_row_layout_no_reassignment():
+    eng = make_engine()
+    eng.set_bin_map([
+        BinRegion(bin_id="bin_0_0", label="bin_0_0",
+                  x_min=0, x_max=200, y_min=0, y_max=100, confidence=0.9),
+    ])
+    hand = reaching_hand(tip_xy=(100, 50), anchor_xy=(100, 300))
+    ev = assign_one(eng, hand)
+    assert ev.bin_id == "bin_0_0"
+    assert ev.method == "point_in_polygon"

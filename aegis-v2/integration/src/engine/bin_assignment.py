@@ -147,7 +147,57 @@ class BinAssignmentEngine:
         n = len(pts)
         return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
 
-    def assign(self, hands: list) -> list[BinEvent]:
+    def _bottom_bin_at(self, x: float):
+        """Bottom-row bin whose x-range contains x, or None."""
+        for b in self._bottom_bins:
+            if b.x_min <= x <= b.x_max:
+                return b
+        return None
+
+    def _apply_occlusion_gate(self, hand, event, frame_shape):
+        """Reject an extrapolated fingertip that fell into a top bin while the
+        hand's proximal anchor sits at/below the bottom-band rim. Reassign to the
+        bottom bin beneath, or suppress when there is clearly a bottom reach but
+        no bin to assign to. Returns the (possibly rewritten) event."""
+        if not self._gate_enabled or event.bin_id is None or not self._top_rows:
+            return event
+        if self._bin_row(event.bin_id) not in self._top_rows:
+            return event
+
+        anchor = self._occlusion_anchor(hand, frame_shape)
+        if anchor is None:
+            return event
+        ax, ay = anchor
+
+        below = self._bottom_bin_at(ax)
+        if below is None:
+            below = self._bottom_bin_at(event.hand_point[0])
+
+        # Per-column rim (primary): anchor at/below the bin's cut-off rim.
+        if below is not None and ay >= below.y_min:
+            return BinEvent(
+                hand_id=event.hand_id, handedness=event.handedness,
+                bin_id=below.bin_id, bin_label=below.label,
+                hand_point=event.hand_point, hand_area=event.hand_area,
+                confidence=below.confidence, method="occlusion_gate",
+            )
+
+        # Global fallback: clearly a bottom reach but no bin beneath → suppress.
+        if below is None and ay >= self._global_occ_y:
+            logger.info(
+                "Occlusion gate suppressed false top hit %s (anchor x=%.1f off all bottom bins)",
+                event.bin_id, ax,
+            )
+            return BinEvent(
+                hand_id=event.hand_id, handedness=event.handedness,
+                bin_id=None, bin_label=None,
+                hand_point=event.hand_point, hand_area=event.hand_area,
+                confidence=0.0, method="occlusion_gate",
+            )
+
+        return event
+
+    def assign(self, hands: list, frame_shape=None) -> list[BinEvent]:
         """
         For each detected hand, determine which bin it is in.
 
@@ -175,6 +225,7 @@ class BinAssignmentEngine:
             else:
                 event = self._assign_pip(hand, point, hand_area)
 
+            event = self._apply_occlusion_gate(hand, event, frame_shape)
             events.append(event)
 
         return events
