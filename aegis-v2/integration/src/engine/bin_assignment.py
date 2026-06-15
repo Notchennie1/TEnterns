@@ -5,12 +5,14 @@ Given bin geofences (from cv-models) and hand detections (from hand-models),
 determines which bin each hand is currently reaching into.
 
 This is the core integration logic: it combines outputs from both
-model pipelines to produce bin assignments for kinetic gating.
+model pipelines to produce bin assignments, which the dashboard uses to
+signal whether a hand is hovering the right or wrong bin.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -65,10 +67,18 @@ class BinAssignmentEngine:
         self._method: str = config.get("method", "point_in_polygon")
         self._keypoint: str = config.get("hand_keypoint", "index_tip")
         self._overlap_threshold: float = config.get("overlap_threshold", 0.3)
+        gate_cfg = config.get("occlusion_gate", {}) or {}
+        self._gate_enabled: bool = gate_cfg.get("enabled", True)
         self._bins: list[BinRegion] = []
+        # Grid structure for the occlusion gate, recomputed on every bin-map
+        # change. Empty until a multi-row bin map is set.
+        self._top_rows: set[int] = set()
+        self._bottom_bins: list[BinRegion] = []
+        self._global_occ_y: float = 0.0
 
     def set_bin_map(self, bins: list[BinRegion]) -> None:
         self._bins = bins
+        self._recompute_grid_structure()
         logger.info("Bin map set: %d region(s)", len(bins))
 
     def set_bin_map_from_geofences(self, geofences: dict) -> None:
@@ -83,7 +93,36 @@ class BinAssignmentEngine:
             )
             for bid, c in geofences.items()
         ]
+        self._recompute_grid_structure()
         logger.info("Bin map set from geofences: %d region(s)", len(self._bins))
+
+    @staticmethod
+    def _bin_row(bin_id: str) -> int:
+        """Row index from 'bin_{row}_{col}'. -1 when unparseable."""
+        parts = bin_id.split("_")
+        try:
+            return int(parts[-2])
+        except (ValueError, IndexError):
+            return -1
+
+    def _recompute_grid_structure(self) -> None:
+        """Precompute the top rows, bottom-row bins (sorted by x), and the
+        global bottom-band rim used by the occlusion gate. Inert (everything
+        empty) for single-row or unparseable layouts."""
+        rows = {self._bin_row(b.bin_id) for b in self._bins}
+        rows.discard(-1)
+        if len(rows) < 2:
+            self._top_rows = set()
+            self._bottom_bins = []
+            self._global_occ_y = 0.0
+            return
+        bottom_row = max(rows)
+        self._top_rows = {r for r in rows if r < bottom_row}
+        self._bottom_bins = sorted(
+            (b for b in self._bins if self._bin_row(b.bin_id) == bottom_row),
+            key=lambda b: b.x_min,
+        )
+        self._global_occ_y = min(b.y_min for b in self._bottom_bins)
 
     def assign(self, hands: list) -> list[BinEvent]:
         """
