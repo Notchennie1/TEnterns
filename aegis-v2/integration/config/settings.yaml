@@ -62,15 +62,6 @@ work_order:
     - [5, 0, 5, 5, 0, 5]   # layer 0 (top) → 6 bins; 0 = not part of the job
     - [3, 3, 3]            # layer 1 (bottom) → 3 bins
 
-# --- Triple-Gate FSM (Kinetic Gating) ------------
-fsm:
-  gate1_spatial_timeout: 2.0      # seconds — hand must stay in bin
-  gate2_intent_timeout: 1.5       # seconds — grab gesture detection window
-  gate3_verification_timeout: 3.0 # seconds — weight confirmation window
-  weight_delta_threshold: 50      # grams — minimum change to confirm pick/place
-  error_cooldown: 5.0             # seconds before retry after failure
-  max_retries: 3
-
 # --- Sensing (future: Modbus / Serial) -----------
 sensing:
   modbus:

@@ -2,15 +2,15 @@
 AEGIS v2 — Integration Pipeline
 =================================
 The main orchestrator that wires together:
-  1. CV Model   → Bin boundary detection (snapshot at startup)
+  1. CV Model   → Bin boundary detection (two-snapshot OBB grid flow)
   2. Hand Model → Real-time hand tracking (any registered backend)
-  3. Engine     → Bin assignment + Triple-Gate FSM for kinetic gating
+  3. Engine     → Bin assignment (which bin a hand is hovering over)
   4. UI         → OpenCV camera overlay + FastAPI web dashboard
 
 Lifecycle:
-  INIT  — Open camera, snapshot bins, lock coordinates, load hand tracker,
-          build overlay, launch dashboard
-  LOOP  — Sense (detect hands) → Analyse (assign bins, run FSM) → Act (UI + gate)
+  INIT  — Open camera, load OBB model, load hand tracker, build overlay,
+          launch dashboard
+  LOOP  — Sense (detect hands) → Analyse (assign bins) → Act (UI highlight)
   STOP  — Cleanup resources
 
 Usage:
@@ -37,7 +37,7 @@ sys.path.insert(0, str(_ROOT))         # integration/
 # launched from any working directory.
 _DEFAULT_CONFIG = str(_ROOT / "integration" / "config" / "settings.yaml")
 
-from integration.src.engine import BinAssignmentEngine, BinRegion, TripleGateFSM, SensorReading
+from integration.src.engine import BinAssignmentEngine, BinRegion
 from integration.src.sensing import LoadCellReader
 from integration.src.ui.overlay import OverlayUI
 from integration.src.ui.state import PipelineState
@@ -69,8 +69,8 @@ class Pipeline:
     Main AEGIS v2 orchestrator.
 
     Connects cv-models (bin detection) with hand-models (hand tracking)
-    through the bin assignment engine and triple-gate FSM, with both an
-    OpenCV camera overlay and a web dashboard for the operator.
+    through the bin assignment engine, with both an OpenCV camera overlay
+    and a web dashboard for the operator.
     """
 
     def __init__(self, config_path: str = _DEFAULT_CONFIG):
@@ -84,7 +84,6 @@ class Pipeline:
         self._manual: bool = False                # manual-layout fallback active?
         self._hand_tracker: Optional[BaseHandTracker] = None
         self._assignment: Optional[BinAssignmentEngine] = None
-        self._fsm: Optional[TripleGateFSM] = None
         self._overlay: Optional[OverlayUI] = None
         self._loadcells: Optional[LoadCellReader] = None
         self._geofences: dict = {}
@@ -325,17 +324,10 @@ class Pipeline:
         self._hand_tracker = TrackerRegistry.create(backend, ht_cfg)
 
     def _create_engines(self) -> None:
-        # Bin assignment
+        # Bin assignment — maps each hand to the bin it is hovering over.
         assign_cfg = self._config.get("bin_assignment", {})
         self._assignment = BinAssignmentEngine(assign_cfg)
         self._assignment.set_bin_map_from_geofences(self._geofences)
-
-        # FSM
-        self._fsm = TripleGateFSM(self._config)
-        self._fsm.set_callbacks(
-            on_success=self._on_gate_success,
-            on_error=self._on_gate_error,
-        )
 
     def _create_overlay(self) -> None:
         """Build the OpenCV overlay renderer from the current geofences.
@@ -456,35 +448,12 @@ class Pipeline:
             hands = self._hand_tracker.detect(frame)
             events = self._assignment.assign(hands, frame.shape)
 
-            for ev in events:
-                if ev.bin_id is not None:
-                    hand = next((h for h in hands if h.hand_id == ev.hand_id), None)
-                    is_grabbing = getattr(hand, "is_grabbing", False) if hand else False
-                    reading = SensorReading(
-                        timestamp=time.time(),
-                        hand_in_geofence=True,
-                        closed_fist_detected=is_grabbing,
-                        weight_delta=0.0,
-                        bin_id=ev.bin_id,
-                    )
-                    self._fsm.update(reading)
-
-            fsm_info = self._fsm.get_state_info()
             self._state.update_hands(hands, events)
-            self._state.update_fsm(
-                state=fsm_info["state"],
-                bin_id=fsm_info["bin_id"],
-                elapsed=fsm_info["elapsed_time"],
-            )
             active_ids = {ev.bin_id for ev in events if ev.bin_id is not None}
             self._state.update_bins(self._geofences, active_ids)
 
             if show_overlay:
-                display = self._overlay.render(
-                    frame, hands, events,
-                    fsm_state=self._fsm.state,
-                    fsm_info=fsm_info,
-                )
+                display = self._overlay.render(frame, hands, events)
                 cv2.imshow("AEGIS v2 — Bin Tracker", display)
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord("q"):
@@ -507,22 +476,9 @@ class Pipeline:
 
             if frame_count % 300 == 0:
                 fps = frame_count / (time.time() - t0)
-                logger.info("FPS: %.1f | FSM: %s | Hands: %d | Active bins: %s",
-                            fps, self._fsm.state.value, len(hands),
-                            ", ".join(active_ids) or "none") 
-
-    # ── Callbacks ────────────────────────────────────────────
-
-    def _on_gate_success(self, bin_id: str) -> None:
-        """Called when all three gates pass — activate load receptor."""
-        logger.info("LOAD RECEPTOR ACTIVATED for %s", bin_id)
-        self._state.record_pick(bin_id)
-        # TODO: Send signal to hardware (Modbus write / serial command)
-
-    def _on_gate_error(self, bin_id: str, reason: str) -> None:
-        """Called when a gate fails."""
-        logger.warning("Gate error for %s: %s", bin_id, reason)
-        self._state.add_error(bin_id, reason)
+                logger.info("FPS: %.1f | Hands: %d | Active bins: %s",
+                            fps, len(hands),
+                            ", ".join(active_ids) or "none")
 
     # ── Cleanup ──────────────────────────────────────────────
 
