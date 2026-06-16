@@ -37,7 +37,6 @@ sys.path.insert(0, str(_ROOT))         # integration/
 # launched from any working directory.
 _DEFAULT_CONFIG = str(_ROOT / "integration" / "config" / "settings.yaml")
 
-from integration.src.detectors import BinDetector
 from integration.src.engine import BinAssignmentEngine, BinRegion, TripleGateFSM, SensorReading
 from integration.src.sensing import LoadCellReader
 from integration.src.ui.overlay import OverlayUI
@@ -79,13 +78,18 @@ class Pipeline:
         self._setup_logging()
 
         self._cap: Optional[cv2.VideoCapture] = None
-        self._bin_detector: Optional[BinDetector] = None
+        self._obb = None                          # initialize_bins_obb module (lazy)
+        self._obb_model = None                    # loaded YOLO-OBB model (or None)
+        self._grid_session = None                 # GridSession for the two-snapshot flow
+        self._manual: bool = False                # manual-layout fallback active?
         self._hand_tracker: Optional[BaseHandTracker] = None
         self._assignment: Optional[BinAssignmentEngine] = None
         self._fsm: Optional[TripleGateFSM] = None
         self._overlay: Optional[OverlayUI] = None
         self._loadcells: Optional[LoadCellReader] = None
         self._geofences: dict = {}
+        self._rotate_180: bool = bool(
+            self._config.get("camera", {}).get("rotate_180", False))
 
         # Shared state for the web dashboard
         self._state = PipelineState()
@@ -94,8 +98,7 @@ class Pipeline:
         """Full lifecycle: init → loop → cleanup."""
         try:
             self._open_camera()
-            self._detect_bins()
-            self._apply_work_order()
+            self._init_bins()
             self._init_loadcells()
             self._load_hand_tracker()
             self._create_engines()
@@ -149,41 +152,59 @@ class Pipeline:
                 frame = f
         return frame
 
-    def _detect_bins(self) -> None:
-        """Snapshot → detect bin boundaries → lock coordinates for session.
+    def _init_bins(self) -> None:
+        """Set up bin detection for the session.
 
-        If ``bin_detector.manual_layout`` is set, CV detection is skipped and
-        the bins are laid out as an even grid built from the per-layer counts.
+        Two paths:
+          * ``manual_layout`` set → build an even grid from per-layer counts at
+            startup (no model needed beyond a frame for its size) and apply the
+            work order immediately. The headless-friendly fallback.
+          * otherwise → load the native OBB model and arm the two-snapshot
+            operator flow. No bins are locked at INIT; the operator presses ``1``
+            to calibrate the 6+3 workstation grid and ``2`` to initialise the kit.
         """
         det_cfg = self._config.get("bin_detector", {})
-
-        logger.info("Warming up camera and taking initialization snapshot...")
-        frame = self._grab_warm_frame(self._config.get("camera", {}).get("warmup_frames", 30))
-        if frame is None:
-            raise RuntimeError("Failed to capture initialization snapshot")
-
         manual_layout = det_cfg.get("manual_layout")
+
         if manual_layout:
+            self._manual = True
+            logger.info("Warming up camera for manual-layout frame size...")
+            frame = self._grab_warm_frame(
+                self._config.get("camera", {}).get("warmup_frames", 30))
+            if frame is None:
+                raise RuntimeError("Failed to capture initialization snapshot")
+            if self._rotate_180:
+                frame = cv2.rotate(frame, cv2.ROTATE_180)
             h, w = frame.shape[:2]
             self._geofences = self._build_manual_geofences(manual_layout, w, h)
             logger.info("Manual bin layout: %d layer(s), %d bins total",
                         len(manual_layout), len(self._geofences))
-        else:
-            model_path = det_cfg.get("model_path", "yolov8n.pt")
-            conf = det_cfg.get("confidence_threshold", 0.5)
-            self._bin_detector = BinDetector(model_path=model_path, conf_threshold=conf)
-            self._geofences = self._bin_detector.detect_bins(frame)
-            logger.info("Bin map locked: %d regions", len(self._geofences))
+            self._state.update_bins(self._geofences)
+            self._apply_work_order()
+            return
 
-        # Push bin map to shared state
-        self._state.update_bins(self._geofences)
+        # OBB two-snapshot flow — bins are locked interactively, not at INIT.
+        self._load_obb_model()
+        from integration.src.detectors.grid_session import GridSession
+        self._grid_session = GridSession()
+        self._geofences = {}
+        logger.info("OBB two-snapshot flow ready — press '1' to calibrate the "
+                    "workstation grid, '2' to initialise the kit")
 
-        # Show detection result (CV path only; manual layout has no detector)
-        if self._config.get("debug", {}).get("show_init_snapshot", False) and self._bin_detector:
-            vis = self._bin_detector.visualize(frame)
-            cv2.imshow("Bin Detection — Initialization", vis)
-            cv2.waitKey(2000)
-            cv2.destroyWindow("Bin Detection — Initialization")
+    def _load_obb_model(self) -> None:
+        """Load the native OBB bin model once at startup (fails soft to ``None``)."""
+        from integration.src.detectors import initialize_bins_obb as obb
+        self._obb = obb
+        model_path = self._config.get("bin_detector", {}).get("model_path")
+        if model_path:
+            p = Path(model_path)
+            if not p.is_absolute():
+                p = _ROOT / model_path        # _ROOT = aegis-v2/
+            model_path = str(p)
+        self._obb_model = obb.load_model(model_path)
+        if self._obb_model is None:
+            logger.warning("OBB model unavailable — calibration ('1') will find no "
+                           "bins until weights/ultralytics are present")
 
     @staticmethod
     def _build_manual_geofences(
@@ -289,12 +310,23 @@ class Pipeline:
         )
 
     def _create_overlay(self) -> None:
-        """Build the OpenCV overlay renderer from detected bins."""
+        """Build the OpenCV overlay renderer from the current geofences.
+
+        In the OBB flow the grid is empty until the operator calibrates, so this
+        may start with zero bins; ``_rebuild_overlay`` refreshes it after each
+        snapshot.
+        """
         ui_cfg = self._config.get("ui", {})
         if not ui_cfg.get("enabled", True):
             return
+        self._rebuild_overlay(self._geofences)
+        logger.info("OpenCV overlay created with %d bins", len(self._geofences))
 
-        # Convert geofences dict to BinRegion objects for the overlay
+    def _rebuild_overlay(self, geofences: dict) -> None:
+        """(Re)build the overlay from a geofence dict. No-op when the UI is off."""
+        ui_cfg = self._config.get("ui", {})
+        if not ui_cfg.get("enabled", True):
+            return
         bins = [
             BinRegion(
                 bin_id=bid, label=bid,
@@ -303,10 +335,9 @@ class Pipeline:
                 confidence=c.get("confidence", 0.0),
                 polygon=c.get("polygon"),
             )
-            for bid, c in self._geofences.items()
+            for bid, c in geofences.items()
         ]
         self._overlay = OverlayUI(ui_cfg, bins)
-        logger.info("OpenCV overlay created with %d bins", len(bins))
 
     def _start_dashboard(self) -> None:
         """Launch the FastAPI web dashboard in a background thread."""
@@ -325,6 +356,56 @@ class Pipeline:
         except Exception as e:
             logger.warning("Dashboard failed to start: %s", e)
 
+    # ── Two-snapshot operator flow (OBB) ─────────────────────
+
+    def _calibrate_grid(self, frame) -> None:
+        """Key '1': snapshot → OBB detect (9 bins) → lock the 6+3 grid."""
+        if self._grid_session is None:
+            logger.info("Calibration is only available in the OBB flow "
+                        "(manual_layout is set)")
+            return
+        dets = self._obb.detect_bins(frame, self._obb_model, expected_count=9)
+        try:
+            self._grid_session.calibrate(dets)
+        except ValueError as e:
+            logger.warning("Grid calibration failed: %s", e)
+            return
+        logger.info("Workstation grid calibrated — 9 slots locked")
+        self._apply_bins(self._grid_session.to_geofences())
+
+    def _init_kit(self, frame) -> None:
+        """Key '2': snapshot → match to grid → present / missing bins."""
+        if self._grid_session is None:
+            logger.info("Kit init is only available in the OBB flow "
+                        "(manual_layout is set)")
+            return
+        if not self._grid_session.calibrated:
+            logger.warning("Press '1' to calibrate the workstation grid before "
+                           "initialising the kit")
+            return
+        dets = self._obb.detect_bins(frame, self._obb_model)
+        self._grid_session.init_kit(dets)
+        logger.info("Kit initialised — present slots %s, missing slots %s",
+                    self._grid_session.present_slots or "none",
+                    self._grid_session.missing_slots or "none")
+        self._apply_bins(self._grid_session.to_geofences(), apply_work_order=True)
+
+    def _apply_bins(self, geofences: dict, apply_work_order: bool = False) -> None:
+        """Push a new geofence set everywhere: state, assignment engine, overlay.
+
+        The assignment engine only gets **present** bins (``detected=True``) so a
+        hand can't be assigned to an empty slot; the dashboard and overlay get all
+        slots (missing ones render greyed via ``detected=False``).
+        """
+        self._geofences = geofences
+        self._state.update_bins(geofences)
+        present = {bid: c for bid, c in geofences.items() if c.get("detected", True)}
+        if self._assignment is not None:
+            self._assignment.set_bin_map_from_geofences(present)
+        self._rebuild_overlay(geofences)
+        if apply_work_order:
+            self._apply_work_order()
+
     # ── Stage 2: Sense → Analyse → Act loop ──────────────────
 
     def _main_loop(self) -> None:
@@ -340,6 +421,8 @@ class Pipeline:
             ret, frame = self._cap.read()
             if not ret:
                 continue
+            if self._rotate_180:
+                frame = cv2.rotate(frame, cv2.ROTATE_180)
 
             hands = self._hand_tracker.detect(frame)
             events = self._assignment.assign(hands)
@@ -374,8 +457,13 @@ class Pipeline:
                     fsm_info=fsm_info,
                 )
                 cv2.imshow("AEGIS v2 — Bin Tracker", display)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord("q"):
                     break
+                if key == ord("1"):
+                    self._calibrate_grid(frame)
+                elif key == ord("2"):
+                    self._init_kit(frame)
 
             frame_count += 1
             if frame_count % 30 == 0:

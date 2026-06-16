@@ -9,10 +9,13 @@ camera:
   warmup_frames: 30               # frames discarded before the init snapshot so
                                   # exposure/focus settle (USB cams need this; raise
                                   # if the Logitech still detects nothing)
+  rotate_180: true                # rotate every frame 180° to match the rig mount
 
 # --- Bin Boundary Detector (from cv-models) ------
 bin_detector:
-  model_path: "./cv-models/models/weights/best.pt"   # Trained YOLOv8-seg weights
+  # Native OBB (oriented bounding box) bin model. Relative paths resolve against
+  # the aegis-v2 root, so the pipeline can launch from any working directory.
+  model_path: "./cv-models/models/weights/project_9_yolov8_obb_1.pt"
   confidence_threshold: 0.5
   iou_threshold: 0.45
   device: "cpu"                   # "cpu" or "cuda:0"
@@ -48,8 +51,8 @@ bin_assignment:
 # the live count with no target. Leave commented to disable targets entirely.
 work_order:
   targets:
-    - [5, 0, 5, 5]   # layer 0 → 4 bins
-    - [3, 3, 3]      # layer 1 → 3 bins
+    - [5, 0, 5, 5, 0, 5]   # layer 0 (top) → 6 bins; 0 = not part of the job
+    - [3, 3, 3]            # layer 1 (bottom) → 3 bins
 
 # --- Triple-Gate FSM (Kinetic Gating) ------------
 fsm:
