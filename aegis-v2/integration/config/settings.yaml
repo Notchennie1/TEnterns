@@ -2,7 +2,7 @@
 # ================================================
 
 camera:
-  source: 0                       # 0 = default webcam, or video path / RTSP URL
+  source: 1                       # 0 = default webcam, or video path / RTSP URL
   width: 1280
   height: 720
   fps: 30
@@ -42,6 +42,14 @@ bin_assignment:
   method: "point_in_polygon"      # "point_in_polygon" | "nearest_centroid" | "area_overlap"
   hand_keypoint: "index_tip"      # Which landmark to use as the "reaching" point
   overlap_threshold: 0.3          # Min overlap ratio for area_overlap method
+
+  # Occlusion gate: when a hand reaches into a BOTTOM bin, the shelf lip hides the
+  # fingers and MediaPipe extrapolates the fingertip — sometimes into a TOP bin,
+  # producing a false top-bin hit. The gate detects this (proximal anchor — wrist
+  # or knuckles — at/below the bottom-bin rim) and reassigns to the bottom bin
+  # beneath. Off → assign() behaves exactly as before.
+  occlusion_gate:
+    enabled: true
 
 # --- Work Order (target pick counts) -------------
 # Predetermined target quantity for each bin, shown in the dashboard as
@@ -97,6 +105,7 @@ ui:
 dashboard:
   enabled: true
   port: 8080                      # http://localhost:8080
+  open_browser: true              # auto-open the UI in the default browser on run
 
 # --- Debug ---------------------------------------
 debug:

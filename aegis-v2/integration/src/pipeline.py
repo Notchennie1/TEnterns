@@ -132,11 +132,39 @@ class Pipeline:
         else:
             self._cap = cv2.VideoCapture(source)
 
+        if not self._cap.isOpened():
+            raise RuntimeError(f"Cannot open camera: {source}")
+
+        # Request MJPG. Most USB webcams only deliver 720p/1080p at 30 fps when the
+        # stream is MJPG-compressed; the default (uncompressed YUY2) saturates USB
+        # bandwidth and the driver silently drops to ~10 fps. Only meaningful for
+        # real capture devices, not files.
+        mjpg = cv2.VideoWriter_fourcc(*"MJPG")
+        if isinstance(source, int):
+            self._cap.set(cv2.CAP_PROP_FOURCC, mjpg)
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, cam.get("width", 1280))
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam.get("height", 720))
         self._cap.set(cv2.CAP_PROP_FPS, cam.get("fps", 30))
-        if not self._cap.isOpened():
-            raise RuntimeError(f"Cannot open camera: {source}")
+        # Re-assert MJPG AFTER the resolution. On Windows/DirectShow the first FOURCC
+        # request is silently reverted to YUY2 once the resolution is set afterwards,
+        # which is what caps 720p at ~10 fps. Setting it again here makes MJPG stick
+        # (verified: re-assert -> 1280x720 @ 30 fps MJPG; without it -> YUY2 @ 10 fps).
+        if isinstance(source, int):
+            self._cap.set(cv2.CAP_PROP_FOURCC, mjpg)
+        # Keep only the newest frame so a slow loop reads fresh frames instead of
+        # draining a backlog of stale buffered ones (the source of growing lag).
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # The requests above are only hints — log what the driver actually
+        # negotiated. This is the evidence for whether the camera (vs frame
+        # processing) is the FPS bottleneck.
+        actual_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = self._cap.get(cv2.CAP_PROP_FPS)
+        fourcc_int = int(self._cap.get(cv2.CAP_PROP_FOURCC))
+        fourcc = "".join(chr((fourcc_int >> (8 * i)) & 0xFF) for i in range(4)).strip()
+        logger.info("Camera negotiated: %dx%d @ %.1f fps, FOURCC=%r",
+                    actual_w, actual_h, actual_fps, fourcc)
 
     def _grab_warm_frame(self, warmup: int = 30):
         """Read and discard frames so exposure/focus settle, then return the last frame.
@@ -347,9 +375,10 @@ class Pipeline:
             return
 
         port = dash_cfg.get("port", 8080)
+        open_browser = dash_cfg.get("open_browser", True)
         try:
             from integration.src.ui.dashboard import start_dashboard
-            start_dashboard(self._state, port=port)
+            start_dashboard(self._state, port=port, open_browser=open_browser)
             logger.info("Web dashboard available at http://localhost:%d", port)
         except ImportError as e:
             logger.warning("Could not start dashboard (missing deps): %s", e)
@@ -425,7 +454,7 @@ class Pipeline:
                 frame = cv2.rotate(frame, cv2.ROTATE_180)
 
             hands = self._hand_tracker.detect(frame)
-            events = self._assignment.assign(hands)
+            events = self._assignment.assign(hands, frame.shape)
 
             for ev in events:
                 if ev.bin_id is not None:
