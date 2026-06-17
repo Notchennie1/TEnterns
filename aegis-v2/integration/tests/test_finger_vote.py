@@ -185,3 +185,28 @@ def test_offframe_tip_dropped():
     [ev] = eng.assign([hand], FRAME)
     assert ev.bin_id is None
     assert ev.method == "finger_vote"
+
+
+# ── Task 5: composition with the occlusion gate ─────────────
+
+def test_vote_then_occlusion_gate_reassigns():
+    """Voting picks a top bin; the occlusion gate (run after) reassigns it to the
+    bottom bin beneath when the proximal anchor is below the rim.
+
+    Both tips → bin_0_0 (top); MCP centroid at (50,150) is below the bottom rim
+    (y=100) and over bin_1_0 → gate reassigns to bin_1_0.
+    """
+    eng = make_engine(gate=True)
+    hand = make_hand(index=(50, 50), middle=(50, 55), mcps=(50, 150))
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_1_0"
+    assert ev.method == "occlusion_gate"
+
+
+def test_gate_disabled_keeps_vote_result():
+    """With the gate off, the same hand keeps the voted top bin."""
+    eng = make_engine(gate=False)
+    hand = make_hand(index=(50, 50), middle=(50, 55), mcps=(50, 150))
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_0"
+    assert ev.method == "finger_vote"

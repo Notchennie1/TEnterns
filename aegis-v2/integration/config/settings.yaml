@@ -43,6 +43,16 @@ bin_assignment:
   hand_keypoint: "index_tip"      # Which landmark to use as the "reaching" point
   overlap_threshold: 0.3          # Min overlap ratio for area_overlap method
 
+  # Finger-vote method (set method: "finger_vote" above to use it). The index
+  # and middle fingertips each vote for the bin they fall in; agreement (or a
+  # single inside tip) wins, a split is broken by deepest penetration (the tip
+  # planted furthest from a bin edge), and if neither tip is inside a bin their
+  # centroid is used. Tips below the confidence floor or off-frame are ignored.
+  # Index + middle is the human tripod-pick set; do not add ring/pinky (they
+  # flail in precision picks and add false cross-bin votes).
+  vote_keypoints: [index_tip, middle_tip]
+  vote_confidence_floor: 0.5
+
   # Occlusion gate: when a hand reaches into a BOTTOM bin, the shelf lip hides the
   # fingers and MediaPipe extrapolates the fingertip — sometimes into a TOP bin,
   # producing a false top-bin hit. The gate detects this (proximal anchor — wrist
