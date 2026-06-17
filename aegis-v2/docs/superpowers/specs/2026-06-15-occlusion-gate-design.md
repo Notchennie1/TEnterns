@@ -3,6 +3,15 @@
 **Date:** 2026-06-15
 **Status:** Approved for implementation
 
+> **Correction (2026-06-17):** Decision #2's anchor priority was **inverted**.
+> The original "wrist primary, MCP knuckles fallback" misfired on a genuine reach
+> *over* the shelf lip into a top bin: the wrist trails back down over the bottom
+> band while the fingers (and knuckles) are genuinely up in the top bin, so the
+> gate wrongly reassigned the pick to the bottom bin. The knuckles — not the wrist
+> — report which bin the hand is in. The anchor is now **MCP-knuckle centroid
+> primary, wrist fallback** (`_occlusion_anchor`). The physical rule in the next
+> section still holds; only *which* proximal landmark encodes it changed.
+
 ## Problem
 
 MediaPipe Hand Landmarker always returns all 21 landmarks once a hand is

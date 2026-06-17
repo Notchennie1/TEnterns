@@ -90,33 +90,56 @@ def test_genuine_top_reach_untouched():
     assert ev.method == "point_in_polygon"
 
 
-def test_wrist_in_frame_wins_over_mcp():
-    """Wrist finite and in-frame is used as the anchor even when the MCP
-    centroid would say otherwise. Wrist below rim, MCP above → reassigned."""
+def test_knuckles_win_over_low_wrist_top_reach_untouched():
+    """Over-the-shelf reach: fingertip and knuckles are up in the top bin, but
+    the wrist trails back down over the bottom bin. The knuckles — not the
+    wrist — decide where the hand is, so the genuine top pick is left untouched.
+
+    (Regression: the wrist used to win here and wrongly reassigned to bin_1_0.)"""
     eng = make_engine()
     hand = make_hand(index_tip=(50, 50), mcps=(50, 40), wrist=(50, 150))
     [ev] = eng.assign([hand], FRAME)
-    assert ev.bin_id == "bin_1_0"
-    assert ev.method == "occlusion_gate"
+    assert ev.bin_id == "bin_0_0"
+    assert ev.method == "point_in_polygon"
 
 
-def test_wrist_offframe_falls_back_to_mcp():
-    """Wrist off-frame is ignored; MCP centroid (below rim) is used → reassigned.
-    If the off-frame wrist (y=-50, above rim) had been used, no reassignment."""
+def test_knuckles_low_reassigned_even_with_high_wrist():
+    """Mirror: knuckles below the rim (hand in the bottom band, fingertip
+    extrapolated up) → reassigned, regardless of a wrist that reads above."""
     eng = make_engine()
-    hand = make_hand(index_tip=(50, 50), mcps=(50, 150), wrist=(50, -50))
+    hand = make_hand(index_tip=(50, 50), mcps=(50, 150), wrist=(50, 40))
     [ev] = eng.assign([hand], FRAME)
     assert ev.bin_id == "bin_1_0"
     assert ev.method == "occlusion_gate"
 
 
-def test_wrist_non_finite_falls_back_to_mcp():
-    """Present-but-NaN wrist is treated as unusable; MCP centroid used."""
+def test_wrist_fallback_when_no_knuckles():
+    """No knuckles available → wrist is the fallback anchor. Wrist below rim →
+    reassigned to the bottom bin beneath."""
     eng = make_engine()
-    hand = make_hand(index_tip=(50, 50), mcps=(50, 150), wrist=(math.nan, math.nan))
+    hand = make_hand(index_tip=(50, 50), wrist=(50, 150))  # no mcps
     [ev] = eng.assign([hand], FRAME)
     assert ev.bin_id == "bin_1_0"
     assert ev.method == "occlusion_gate"
+
+
+def test_wrist_fallback_offframe_cannot_judge():
+    """No knuckles and the wrist is off-frame → no usable anchor → the gate
+    cannot judge and leaves the event untouched."""
+    eng = make_engine()
+    hand = make_hand(index_tip=(50, 50), wrist=(50, -50))  # no mcps, wrist off-frame
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_0"
+    assert ev.method == "point_in_polygon"
+
+
+def test_wrist_fallback_non_finite_cannot_judge():
+    """No knuckles and a present-but-NaN wrist → no usable anchor → untouched."""
+    eng = make_engine()
+    hand = make_hand(index_tip=(50, 50), wrist=(math.nan, math.nan))  # no mcps
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_0"
+    assert ev.method == "point_in_polygon"
 
 
 def test_angled_reach_no_bottom_bin_suppressed():

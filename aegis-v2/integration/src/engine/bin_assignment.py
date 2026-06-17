@@ -62,7 +62,8 @@ class BinAssignmentEngine:
     Determines which bin each hand is in based on hand position and bin boundaries.
     """
 
-    # MCP knuckle landmarks, the proximal fallback anchor for the occlusion gate.
+    # MCP knuckle landmarks, the primary anchor for the occlusion gate (the
+    # wrist is the fallback). The knuckles track which bin the hand is in.
     _MCP_NAMES = ("index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp")
 
     def __init__(self, config: dict):
@@ -335,20 +336,17 @@ class BinAssignmentEngine:
     def _occlusion_anchor(
         self, hand, frame_shape: Optional[tuple]
     ) -> Optional[tuple[float, float]]:
-        """The most-proximal reliably-available landmark, as (x, y).
+        """The landmark that best reports which bin the hand is reaching into.
 
-        Wrist if finite and (when ``frame_shape`` is given) in-frame; otherwise
-        the centroid of the finite MCP knuckles. None when neither is usable.
+        The MCP knuckle centroid (index/middle/ring/pinky) when any knuckle is
+        finite; the wrist only as a fallback. The knuckles sit at the base of
+        the fingers, so they track where the hand actually is. The wrist is too
+        proximal — during a genuine reach *over* the shelf lip into a top bin it
+        trails back down over the bottom band, even though the hand is up top.
+        Anchoring on the wrist there misfires the gate on a legitimate top pick
+        (it reads the bottom bin), so the wrist is consulted only when no
+        knuckle is available. None when neither is usable.
         """
-        wrist = hand.get_landmark("wrist")
-        if wrist is not None and math.isfinite(wrist.x) and math.isfinite(wrist.y):
-            in_frame = True
-            if frame_shape is not None:
-                h, w = frame_shape[0], frame_shape[1]
-                in_frame = (0 <= wrist.x <= w) and (0 <= wrist.y <= h)
-            if in_frame:
-                return (wrist.x, wrist.y)
-
         xs, ys = [], []
         for name in self._MCP_NAMES:
             lm = hand.get_landmark(name)
@@ -357,6 +355,15 @@ class BinAssignmentEngine:
                 ys.append(lm.y)
         if xs:
             return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+        wrist = hand.get_landmark("wrist")
+        if wrist is not None and math.isfinite(wrist.x) and math.isfinite(wrist.y):
+            in_frame = True
+            if frame_shape is not None:
+                h, w = frame_shape[0], frame_shape[1]
+                in_frame = (0 <= wrist.x <= w) and (0 <= wrist.y <= h)
+            if in_frame:
+                return (wrist.x, wrist.y)
         return None
 
     def _bottom_bin_at(self, x: float) -> Optional[BinRegion]:
