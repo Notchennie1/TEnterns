@@ -69,6 +69,9 @@ class BinAssignmentEngine:
         self._method: str = config.get("method", "point_in_polygon")
         self._keypoint: str = config.get("hand_keypoint", "index_tip")
         self._overlap_threshold: float = config.get("overlap_threshold", 0.3)
+        self._vote_keypoints: list[str] = config.get(
+            "vote_keypoints", ["index_tip", "middle_tip"]
+        )
         self._bins: list[BinRegion] = []
 
         # Occlusion gate (see docs/superpowers/specs/2026-06-15-occlusion-gate-design.md)
@@ -128,6 +131,8 @@ class BinAssignmentEngine:
                 event = self._assign_overlap(hand, point, hand_area)
             elif self._method == "nearest_centroid":
                 event = self._assign_nearest(hand, point, hand_area)
+            elif self._method == "finger_vote":
+                event = self._assign_vote(hand, hand_area, frame_shape)
             else:
                 event = self._assign_pip(hand, point, hand_area)
 
@@ -209,6 +214,67 @@ class BinAssignmentEngine:
             hand_point=point, hand_area=hand_area,
             confidence=0.0, method="area_overlap",
         )
+
+    # ── Finger-vote assignment ───────────────────────────────
+
+    def _usable_vote_tips(self, hand, frame_shape):
+        """Configured vote fingertips as (x, y), dropping missing/non-finite ones.
+
+        ``frame_shape`` is threaded through for the off-frame filter added later;
+        it is unused here.
+        """
+        tips = []
+        for name in self._vote_keypoints:
+            lm = hand.get_landmark(name)
+            if lm is None:
+                continue
+            if not (math.isfinite(lm.x) and math.isfinite(lm.y)):
+                continue
+            tips.append((lm.x, lm.y))
+        return tips
+
+    def _bin_containing(self, point):
+        """First bin whose axis-aligned bounds contain ``point``, or None."""
+        px, py = point
+        for b in self._bins:
+            if b.x_min <= px <= b.x_max and b.y_min <= py <= b.y_max:
+                return b
+        return None
+
+    def _vote_event(self, hand, b, point, hand_area):
+        """Build a finger_vote BinEvent for bin ``b`` (None → no-match event)."""
+        return BinEvent(
+            hand_id=hand.hand_id, handedness=hand.handedness,
+            bin_id=(b.bin_id if b else None), bin_label=(b.label if b else None),
+            hand_point=point, hand_area=hand_area,
+            confidence=(b.confidence if b else 0.0), method="finger_vote",
+        )
+
+    def _assign_vote(self, hand, hand_area, frame_shape):
+        """Index+middle fingertip voting (tiebreak/centroid added in later tasks).
+
+        Each usable tip inside a bin casts a vote. A single inside tip → its bin.
+        No tip inside any bin → no match (centroid fallback added in Task 3).
+        No usable tips → hand center.
+        """
+        tips = self._usable_vote_tips(hand, frame_shape)
+        if not tips:
+            point = hand.center
+            if point is None:
+                return self._vote_event(hand, None, (0.0, 0.0), hand_area)
+            return self._vote_event(hand, self._bin_containing(point), point, hand_area)
+
+        inside = []
+        for t in tips:
+            b = self._bin_containing(t)
+            if b is not None:
+                inside.append((t, b))
+
+        if not inside:
+            return self._vote_event(hand, None, tips[0], hand_area)
+
+        tip, b = inside[0]
+        return self._vote_event(hand, b, tip, hand_area)
 
     # ── Occlusion gate ───────────────────────────────────────
 
