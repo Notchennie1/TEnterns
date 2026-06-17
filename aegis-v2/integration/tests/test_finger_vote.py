@@ -154,3 +154,34 @@ def test_no_inside_centroid_outside_returns_none():
     [ev] = eng.assign([hand], FRAME)
     assert ev.bin_id is None
     assert ev.method == "finger_vote"
+
+
+# ── Task 4: confidence floor + off-frame filtering ──────────
+
+def test_low_confidence_tip_dropped():
+    """A below-floor tip is ignored, so the confident tip decides.
+
+    index (150,50)→bin_0_1, interiority 50 but confidence 0.2 (below 0.5 floor).
+    middle (95,50)→bin_0_0, interiority 5, confidence 1.0.
+    Without the floor the deeper index would win bin_0_1; with it, bin_0_0.
+    """
+    eng = make_engine(floor=0.5)
+    hand = make_hand(index=(150, 50), index_conf=0.2, middle=(95, 50), middle_conf=1.0)
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_0"
+
+
+def test_offframe_tip_dropped():
+    """An off-frame tip is excluded from the centroid.
+
+    Single-bin grid so there is in-frame space outside the bin.
+    index (-120,50) is off-frame (x<0); middle (130,50) is in-frame, outside the bin.
+    With index kept, centroid (5,50) would fall in bin_0_0; dropping it leaves
+    only (130,50), whose centroid is outside → no match.
+    """
+    one_bin = {"bin_0_0": {"x_min": 0, "x_max": 100, "y_min": 0, "y_max": 100, "confidence": 0.9}}
+    eng = make_engine(geofences=one_bin)
+    hand = make_hand(index=(-120, 50), middle=(130, 50))
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id is None
+    assert ev.method == "finger_vote"

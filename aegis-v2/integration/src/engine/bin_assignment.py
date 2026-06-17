@@ -72,6 +72,7 @@ class BinAssignmentEngine:
         self._vote_keypoints: list[str] = config.get(
             "vote_keypoints", ["index_tip", "middle_tip"]
         )
+        self._vote_confidence_floor: float = config.get("vote_confidence_floor", 0.5)
         self._bins: list[BinRegion] = []
 
         # Occlusion gate (see docs/superpowers/specs/2026-06-15-occlusion-gate-design.md)
@@ -218,17 +219,25 @@ class BinAssignmentEngine:
     # ── Finger-vote assignment ───────────────────────────────
 
     def _usable_vote_tips(self, hand, frame_shape):
-        """Configured vote fingertips as (x, y), dropping missing/non-finite ones.
+        """Configured vote fingertips that are finite, confident, and in-frame.
 
-        ``frame_shape`` is threaded through for the off-frame filter added later;
-        it is unused here.
+        Drops a tip when its landmark is missing, non-finite, below
+        ``vote_confidence_floor``, or (when ``frame_shape`` is given) outside the
+        frame. Returns a list of (x, y).
         """
+        h = w = None
+        if frame_shape is not None:
+            h, w = frame_shape[0], frame_shape[1]
         tips = []
         for name in self._vote_keypoints:
             lm = hand.get_landmark(name)
             if lm is None:
                 continue
             if not (math.isfinite(lm.x) and math.isfinite(lm.y)):
+                continue
+            if lm.confidence < self._vote_confidence_floor:
+                continue
+            if w is not None and not (0 <= lm.x <= w and 0 <= lm.y <= h):
                 continue
             tips.append((lm.x, lm.y))
         return tips
