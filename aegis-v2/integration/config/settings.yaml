@@ -2,7 +2,7 @@
 # ================================================
 
 camera:
-  source: 0                   # 0 = default webcam, or video path / RTSP URL
+  source: 1                   # 0 = default webcam, or video path / RTSP URL
   width: 1280
   height: 720
   fps: 30
