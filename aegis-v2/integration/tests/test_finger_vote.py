@@ -130,3 +130,27 @@ def test_split_equal_interiority_lower_bin():
     hand = make_hand(index=(105, 50), middle=(95, 50))
     [ev] = eng.assign([hand], FRAME)
     assert ev.bin_id == "bin_0_0"
+
+
+# ── Task 3: centroid fallback ───────────────────────────────
+
+def test_no_inside_centroid_maps_to_bin():
+    """Neither tip inside any bin, but their centroid is → centroid's bin.
+
+    index (-20,50) and middle (220,50) are both off the grid horizontally;
+    centroid (100,50) lands on bin_0_0's right edge (inclusive).
+    """
+    eng = make_engine()
+    hand = make_hand(index=(-20, 50), middle=(220, 50))
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_0"
+    assert ev.method == "finger_vote"
+
+
+def test_no_inside_centroid_outside_returns_none():
+    """Neither tip nor their centroid is inside any bin → no match."""
+    eng = make_engine()
+    hand = make_hand(index=(-20, -20), middle=(-40, -40))  # centroid (-30,-30)
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id is None
+    assert ev.method == "finger_vote"

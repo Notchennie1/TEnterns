@@ -277,7 +277,10 @@ class BinAssignmentEngine:
                 inside.append((t, b))
 
         if not inside:
-            return self._vote_event(hand, None, tips[0], hand_area)
+            cx = sum(t[0] for t in tips) / len(tips)
+            cy = sum(t[1] for t in tips) / len(tips)
+            centroid = (cx, cy)
+            return self._vote_event(hand, self._bin_containing(centroid), centroid, hand_area)
 
         inside.sort(key=lambda tb: (-self._interiority(tb[0], tb[1]), tb[1].bin_id))
         tip, b = inside[0]
