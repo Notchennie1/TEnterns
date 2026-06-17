@@ -63,7 +63,7 @@ homes:
 1. **`config/inventory.yaml`** — add the item and bin mapping:
    ```yaml
    items:
-     amp: { unit_g: 3.6 }
+     amp: { unit_g: 3.8 }
    bins:
      bin_0_5: amp
    ```
@@ -97,9 +97,9 @@ No `state.py` or `dashboard.py` changes.
 ## Data flow
 
 ```
-ESP32 (AMP @ 3.6 g/item)  streams {"bins":{"bin_0_0":-7.2}}
+ESP32 (AMP @ 3.8 g/item)  streams {"bins":{"bin_0_0":-7.6}}
   → LoadCellReader bin_remap   bin_0_0 → bin_0_5
-  → LoadCellReader.get_weights()            {"bin_0_5": -7.2}
+  → LoadCellReader.get_weights()            {"bin_0_5": -7.6}
   → InventoryTracker.items_taken()          {"bin_0_5": 2}
   → state.set_pick_count("bin_0_5", 2)
   → dashboard shows  2 / 5  + live grams
@@ -122,7 +122,7 @@ ESP32 (AMP @ 3.6 g/item)  streams {"bins":{"bin_0_0":-7.2}}
   cv2, follows `test_finger_vote` style with a fake reader/tracker or injected
   weights):
   - mapped bin with negative weight → `set_pick_count` called with the rounded
-    count (e.g. `-7.2 g @ 3.6 → 2`).
+    count (e.g. `-7.6 g @ 3.8 → 2`).
   - clamp: small positive/zero weight → count `0`, never negative.
   - connected-guard: when `is_connected()` is false, no `set_pick_count` call
     (existing count preserved).
@@ -141,5 +141,6 @@ The ESP32 firmware is flashed and transmitting. The host CP2102 bridge had
 installed via `pnputil /add-driver silabser.inf /install` and the device now
 enumerates as **COM5** (status OK). A live read confirmed it streams
 `{"bins":{"bin_0_0":<grams>}}` at ~−3.8 g idle — hence the `bin_0_0 → bin_0_5`
-remap. Open item: confirm the idle offset is tare drift vs. one AMP already
-removed by physically adding/removing an AMP and watching the count.
+remap. The −3.8 g was traced to **one AMP missing from "full"**; it was
+reincluded, which also fixed the per-unit weight to **3.8 g** (one AMP =
+3.8 g). Resolved — not tare drift.
