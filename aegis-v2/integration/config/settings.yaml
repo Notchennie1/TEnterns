@@ -39,15 +39,29 @@ hand_tracker:
 
 # --- Bin Assignment Engine -----------------------
 bin_assignment:
-  method: "point_in_polygon"      # "point_in_polygon" | "nearest_centroid" | "area_overlap"
+  method: "finger_vote"           # "point_in_polygon" | "nearest_centroid" | "area_overlap" | "finger_vote"
   hand_keypoint: "index_tip"      # Which landmark to use as the "reaching" point
-  overlap_threshold: 0.3          # Min overlap ratio for area_overlap method
+  overlap_threshold: 0.5          # Min overlap ratio for area_overlap method
+                                  # ratio = (hand_box ∩ bin_box) / full_hand_box_area,
+                                  # i.e. fraction of the hand bbox inside the bin
+
+  # Finger-vote method (set method: "finger_vote" above to use it). The index
+  # and middle fingertips each vote for the bin they fall in; agreement (or a
+  # single inside tip) wins, a split is broken by deepest penetration (the tip
+  # planted furthest from a bin edge), and if neither tip is inside a bin their
+  # centroid is used. Tips below the confidence floor or off-frame are ignored.
+  # Index + middle is the human tripod-pick set; do not add ring/pinky (they
+  # flail in precision picks and add false cross-bin votes).
+  vote_keypoints: [index_tip, middle_tip]
+  vote_confidence_floor: 0.5
 
   # Occlusion gate: when a hand reaches into a BOTTOM bin, the shelf lip hides the
   # fingers and MediaPipe extrapolates the fingertip — sometimes into a TOP bin,
-  # producing a false top-bin hit. The gate detects this (proximal anchor — wrist
-  # or knuckles — at/below the bottom-bin rim) and reassigns to the bottom bin
-  # beneath. Off → assign() behaves exactly as before.
+  # producing a false top-bin hit. The gate detects this (knuckle anchor — MCP
+  # centroid, wrist as fallback — at/below the bottom-bin rim) and reassigns to
+  # the bottom bin beneath. The knuckles (not the wrist) decide, so a genuine
+  # reach OVER the lip into a top bin, with the wrist trailing low, stays on the
+  # top bin. Off → assign() behaves exactly as before.
   occlusion_gate:
     enabled: true
 
