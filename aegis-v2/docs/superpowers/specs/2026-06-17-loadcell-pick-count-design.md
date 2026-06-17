@@ -72,10 +72,18 @@ homes:
 2. **`config/settings.yaml`** — under `sensing.loadcells`:
    ```yaml
    enabled: true
-   port: "COMx"      # the COM port the CP210x gets once its driver is installed
+   port: "COM5"      # CP210x bridge (driver installed 2026-06-17)
+   bin_remap:
+     bin_0_0: bin_0_5   # firmware labels its single cell bin_0_0; we want bin_0_5
    ```
 
-3. **`integration/src/pipeline.py`**:
+3. **`integration/src/sensing/loadcell.py`** — apply `bin_remap` when caching a
+   reading: after `_parse_line`, rename any key present in the remap before
+   storing. So `get_weights()` and `get_layout()` already speak `bin_0_5`
+   downstream; no other component knows about the firmware's key. Empty/absent
+   remap → identity (unchanged behavior).
+
+4. **`integration/src/pipeline.py`**:
    - `_init_loadcells()` also constructs an `InventoryTracker` (loads
      `config/inventory.yaml`), stored as `self._inventory`. If the file has no
      usable mappings, the tracker is still built (it just drives no bins).
@@ -89,7 +97,8 @@ No `state.py` or `dashboard.py` changes.
 ## Data flow
 
 ```
-ESP32 (AMP @ 3.6 g/item)
+ESP32 (AMP @ 3.6 g/item)  streams {"bins":{"bin_0_0":-7.2}}
+  → LoadCellReader bin_remap   bin_0_0 → bin_0_5
   → LoadCellReader.get_weights()            {"bin_0_5": -7.2}
   → InventoryTracker.items_taken()          {"bin_0_5": 2}
   → state.set_pick_count("bin_0_5", 2)
@@ -118,14 +127,19 @@ ESP32 (AMP @ 3.6 g/item)
   - connected-guard: when `is_connected()` is false, no `set_pick_count` call
     (existing count preserved).
   - unmapped bin present in weights → never written.
+  - **remap** (`integration/tests/` for loadcell): a line keyed `bin_0_0` with
+    `bin_remap: {bin_0_0: bin_0_5}` → `get_weights()` returns it under
+    `bin_0_5`; `get_layout()` reflects the remapped id; identity when remap empty.
 - **Live** (after the CP210x driver is installed and a `COMx` exists): run
   `python -m sensing.loadcell --port COMx` to confirm `bin_0_5` streams, then
   run the pipeline and watch `bin_0_5` track `n / 5` as AMPs are removed.
 
-## Hardware note (operator step, not code)
+## Hardware note (resolved 2026-06-17)
 
-The ESP32 firmware is flashed and transmitting. On this host the CP2102 bridge
-currently shows **Code 28 (driver not installed)** and has **no COM port**, so
-the live link is blocked until the **Silicon Labs CP210x VCP driver** is
-installed and the device replugged. The software above is built and unit-tested
-independent of this; once a `COMx` appears it is wired in via `settings.yaml`.
+The ESP32 firmware is flashed and transmitting. The host CP2102 bridge had
+**Code 28 (driver not installed)**; the **Silicon Labs CP210x VCP driver** was
+installed via `pnputil /add-driver silabser.inf /install` and the device now
+enumerates as **COM5** (status OK). A live read confirmed it streams
+`{"bins":{"bin_0_0":<grams>}}` at ~−3.8 g idle — hence the `bin_0_0 → bin_0_5`
+remap. Open item: confirm the idle offset is tare drift vs. one AMP already
+removed by physically adding/removing an AMP and watching the count.
