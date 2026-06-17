@@ -103,3 +103,30 @@ def test_both_tips_nan_center_fallback():
     [ev] = eng.assign([hand], FRAME)
     assert ev.bin_id == "bin_0_0"
     assert ev.method == "finger_vote"
+
+
+# ── Task 2: split-vote tiebreak ─────────────────────────────
+
+def test_split_deeper_tip_wins():
+    """Tips in different top bins → the deeper-planted tip's bin wins.
+
+    index at (95,50) → bin_0_0, interiority 5 (clips the right edge).
+    middle at (140,50) → bin_0_1, interiority 40 (planted deeper).
+    """
+    eng = make_engine()
+    hand = make_hand(index=(95, 50), middle=(140, 50))
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_1"
+    assert ev.method == "finger_vote"
+
+
+def test_split_equal_interiority_lower_bin():
+    """Equal interiority → deterministic: lower bin id wins.
+
+    index at (105,50) → bin_0_1, interiority 5.
+    middle at (95,50) → bin_0_0, interiority 5.
+    """
+    eng = make_engine()
+    hand = make_hand(index=(105, 50), middle=(95, 50))
+    [ev] = eng.assign([hand], FRAME)
+    assert ev.bin_id == "bin_0_0"

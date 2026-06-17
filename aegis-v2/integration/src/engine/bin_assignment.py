@@ -241,6 +241,12 @@ class BinAssignmentEngine:
                 return b
         return None
 
+    @staticmethod
+    def _interiority(point, b):
+        """Distance from ``point`` to the nearest edge of bin ``b`` (deeper = larger)."""
+        px, py = point
+        return min(px - b.x_min, b.x_max - px, py - b.y_min, b.y_max - py)
+
     def _vote_event(self, hand, b, point, hand_area):
         """Build a finger_vote BinEvent for bin ``b`` (None → no-match event)."""
         return BinEvent(
@@ -273,6 +279,7 @@ class BinAssignmentEngine:
         if not inside:
             return self._vote_event(hand, None, tips[0], hand_area)
 
+        inside.sort(key=lambda tb: (-self._interiority(tb[0], tb[1]), tb[1].bin_id))
         tip, b = inside[0]
         return self._vote_event(hand, b, tip, hand_area)
 
